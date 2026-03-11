@@ -1,5 +1,5 @@
 import { autoAssignRides, nearestDrivers } from './logic.js';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { apiClient } from './src/apiClient.js';
 
 const SETTINGS_STORAGE_KEY = 'rtc-settings-v3';
