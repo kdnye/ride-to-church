@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { autoAssignRides, optimizeDriverQueue } from './logic.js';
+import { canAccessDriverQueue } from './src/authz.js';
 import { getRouteMatrixDurationsSeconds } from './src/services/routing/googleRoutesMatrix.js';
 import { buildTravelTimeLookup } from './src/services/routing/travelTimeCache.js';
 import {
@@ -145,7 +146,11 @@ async function handleApi(req, res) {
   const queueMatch = url.pathname.match(/^\/api\/drivers\/([^/]+)\/queue$/);
   if (req.method === 'GET' && queueMatch) {
     if (!requireRole(res, session, ['volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
-    return json(res, 200, { queue: await fetchDriverQueue(queueMatch[1]) });
+    const requestedDriverId = queueMatch[1];
+    if (!canAccessDriverQueue({ ...session, role: normalizeRole(session.role) }, requestedDriverId)) {
+      return json(res, 403, { error: 'Forbidden for current role' });
+    }
+    return json(res, 200, { queue: await fetchDriverQueue(requestedDriverId) });
   }
 
   return json(res, 404, { error: 'Not found' });
