@@ -8,6 +8,7 @@ import { getNewlyAssignedRidesForPersistence } from './src/autoAssignPersistence
 import { canAccessDriverQueue } from './src/authz.js';
 import { getRouteMatrixDurationsSeconds } from './src/services/routing/googleRoutesMatrix.js';
 import { buildTravelTimeLookup } from './src/services/routing/travelTimeCache.js';
+import { buildMemberDriverTravelTimes as buildMemberDriverTravelTimesFromMatrix } from './src/services/routing/memberDriverTravelTimes.js';
 import {
   createSession,
   deleteExpiredSessions,
@@ -392,38 +393,13 @@ async function fetchRideById(rideId) {
 
 
 async function buildMemberDriverTravelTimes(rides, users) {
-  if (!ENABLE_ROUTE_MATRIX || !GOOGLE_MAPS_API_KEY) return {};
-
-  const memberById = new Map(users.filter((u) => u.role === 'member').map((u) => [u.id, u]));
-  const drivers = users.filter((u) => u.role === 'volunteer_driver' && u.approval_status === 'approved' && u.coordinates);
-  const requestedRides = rides.filter((ride) => ride.status === 'requested');
-
-  const travelTimeSecondsByMemberDriver = {};
-
-  await Promise.all(requestedRides.map(async (ride) => {
-    const member = memberById.get(ride.memberId);
-    if (!member?.coordinates || !drivers.length) return;
-
-    const rows = await getRouteMatrixDurationsSeconds({
-      origins: drivers.map((driver) => driver.coordinates),
-      destinations: [member.coordinates],
-      apiKey: GOOGLE_MAPS_API_KEY,
-    });
-
-    const byDriver = {};
-    rows.forEach((row) => {
-      if (row.destinationIndex !== 0) return;
-      const driver = drivers[row.originIndex];
-      if (!driver) return;
-      byDriver[driver.id] = row.durationSeconds;
-    });
-
-    if (Object.keys(byDriver).length) {
-      travelTimeSecondsByMemberDriver[ride.memberId] = byDriver;
-    }
-  }));
-
-  return travelTimeSecondsByMemberDriver;
+  return buildMemberDriverTravelTimesFromMatrix({
+    rides,
+    users,
+    apiKey: GOOGLE_MAPS_API_KEY,
+    routeMatrixEnabled: ENABLE_ROUTE_MATRIX,
+    getRouteMatrixDurationsSeconds,
+  });
 }
 
 async function hydrateDriverTravelTimes(driverCoordinates, queue) {
