@@ -7,6 +7,7 @@ import { autoAssignRides, optimizeDriverQueue } from './logic.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const publicRoot = path.join(__dirname);
 const PORT = Number(process.env.PORT || 4173);
 const NODE_ENV = process.env.NODE_ENV ?? 'development';
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -493,16 +494,41 @@ async function sbRequest(endpoint, options = {}) {
 }
 
 async function serveStatic(req, res) {
-  const requestPath = req.url === '/' ? '/index.html' : req.url;
-  const safePath = path.normalize(requestPath).replace(/^\.\.(\/|\\|$)/, '');
-  const fullPath = path.join(__dirname, safePath);
-  const ext = path.extname(fullPath);
-  const body = await readFile(fullPath);
-  res.writeHead(200, {
-    'Content-Type': MIME_TYPES[ext] ?? 'application/octet-stream',
-    ...securityHeaders(),
-  });
-  res.end(body);
+  const rawPath = req.url === '/' ? '/index.html' : req.url ?? '/index.html';
+  const pathWithoutQuery = rawPath.split('#')[0].split('?')[0];
+
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(pathWithoutQuery);
+  } catch {
+    return json(res, 400, { error: 'Invalid URL path encoding' });
+  }
+
+  const normalizedPath = path.normalize(decodedPath);
+  if (normalizedPath.includes('..')) {
+    return json(res, 403, { error: 'Forbidden' });
+  }
+
+  const relativePath = normalizedPath.replace(/^[/\\]+/, '');
+  const fullPath = path.resolve(publicRoot, relativePath);
+  if (!fullPath.startsWith(publicRoot + path.sep)) {
+    return json(res, 403, { error: 'Forbidden' });
+  }
+
+  try {
+    const ext = path.extname(fullPath);
+    const body = await readFile(fullPath);
+    res.writeHead(200, {
+      'Content-Type': MIME_TYPES[ext] ?? 'application/octet-stream',
+      ...securityHeaders(),
+    });
+    res.end(body);
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'EISDIR') {
+      return json(res, 404, { error: 'Not found' });
+    }
+    throw error;
+  }
 }
 
 function json(res, status, payload, extraHeaders = {}) {
