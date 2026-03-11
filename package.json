@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test",
-    "start:static": "python3 -m http.server 4173"
+    "start:prod": "NODE_ENV=production node server.js",
+    "deploy:managed": "echo 'Deploy with your managed host (e.g., Fly.io/Render/Railway) and enable TLS termination at the edge.'",
+    "deploy:tls": "echo 'TLS is terminated at managed hosting edge; enforce HTTPS via server redirect + HSTS.'",
+    "test": "node --test"
   }
 }
