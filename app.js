@@ -39,12 +39,6 @@ const broadcastDraft = document.querySelector('#broadcast-draft');
 const broadcastStatus = document.querySelector('#broadcast-status');
 const auditLogEl = document.querySelector('#audit-log');
 
-const LEGACY_ROLE_MAP = {
-  dispatcher: 'volunteer_dispatcher',
-  manager: 'people_manager',
-  admin: 'super_admin',
-};
-
 const ROLE_LABELS = {
   member: 'Member',
   volunteer_driver: 'Volunteer Driver',
@@ -415,32 +409,28 @@ function currentActor() {
 }
 
 function canRequestRide(user) {
-  return normalizeRole(user.role) === 'member' && user.approval_status === 'approved';
+  return user.role === 'member' && user.approval_status === 'approved';
 }
 
 function canDrive(user) {
-  return normalizeRole(user.role) === 'volunteer_driver' && user.approval_status === 'approved';
+  return user.role === 'volunteer_driver' && user.approval_status === 'approved';
 }
 
 function canDispatch(user) {
-  return ['volunteer_dispatcher', 'people_manager', 'super_admin'].includes(normalizeRole(user.role))
+  return ['volunteer_dispatcher', 'people_manager', 'super_admin'].includes(user.role)
     && user.approval_status === 'approved';
 }
 
 function canManageUsers(user) {
-  return ['people_manager', 'super_admin'].includes(normalizeRole(user.role)) && user.approval_status === 'approved';
+  return ['people_manager', 'super_admin'].includes(user.role) && user.approval_status === 'approved';
 }
 
 function isSuperAdmin(user) {
-  return normalizeRole(user.role) === 'super_admin' && user.approval_status === 'approved';
-}
-
-function normalizeRole(role) {
-  return LEGACY_ROLE_MAP[role] ?? role;
+  return user.role === 'super_admin' && user.approval_status === 'approved';
 }
 
 function roleLabel(role) {
-  return ROLE_LABELS[normalizeRole(role)] ?? role;
+  return ROLE_LABELS[role] ?? role;
 }
 
 function displayName(userId) {
