@@ -293,16 +293,39 @@ async function hydrateState() {
 
 async function onCreateRideRequest(event) {
   event.preventDefault();
-  if (!canRequestRide(currentActor())) {
+  const actor = currentActor();
+
+  if (!canRequestRide(actor)) {
     assignResult.textContent = 'Only approved members can request rides.';
     return;
   }
 
+  const isDispatcher = ['volunteer_dispatcher', 'people_manager', 'super_admin'].includes(actor.role);
+  const targetMemberId = isDispatcher ? memberSelect.value : actor.id;
+
+  let notes = document.querySelector('#pickup-notes').value.trim();
+  const locationChoice = document.querySelector('#pickup-location').value;
+
+  if (locationChoice === 'gps') {
+    if (!navigator.geolocation) {
+      alert('GPS is not supported in this browser. Defaulting to home address.');
+    } else {
+      try {
+        const pos = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+        });
+        notes = `[GPS Pickup: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}] ${notes}`.trim();
+      } catch (err) {
+        alert('Could not get GPS location. Ensure location permissions are granted. Defaulting to home address.');
+      }
+    }
+  }
+
   const optimisticRide = {
     id: `temp-${Date.now()}`,
-    memberId: memberSelect.value,
+    memberId: targetMemberId,
     scheduledFor: document.querySelector('#pickup-date').value,
-    pickupNotes: document.querySelector('#pickup-notes').value.trim(),
+    pickupNotes: notes,
     status: 'requested',
   };
 
@@ -415,6 +438,13 @@ function renderSelects() {
 
   memberSelect.innerHTML = approvedMembers.map((u) => `<option value="${u.id}">${u.fullName}</option>`).join('');
   driverSelect.innerHTML = approvedDrivers.map((u) => `<option value="${u.id}">${u.fullName}</option>`).join('');
+
+  const memberSelectWrapper = document.querySelector('#member-select-wrapper');
+  if (actor && ['volunteer_dispatcher', 'people_manager', 'super_admin'].includes(actor.role)) {
+    memberSelectWrapper.style.display = 'block';
+  } else {
+    memberSelectWrapper.style.display = 'none';
+  }
 
   requestForm.querySelector('button[type="submit"]').disabled = !actor || !canRequestRide(actor);
   autoAssignBtn.disabled = !actor || !canDispatch(actor);

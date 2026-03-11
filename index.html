@@ -51,7 +51,17 @@
       <section class="card page-view" id="view-request">
         <h2>Member Request</h2>
         <form id="request-form">
-          <label>Member <select id="member-select" required></select></label>
+          <span id="member-select-wrapper">
+            <label>Member <select id="member-select"></select></label>
+          </span>
+
+          <label>Pickup Location
+            <select id="pickup-location">
+              <option value="home">Registered Home Address</option>
+              <option value="gps">Current GPS Location</option>
+            </select>
+          </label>
+
           <label>Pickup Date <input id="pickup-date" type="date" required /></label>
           <label>Pickup Notes <input id="pickup-notes" type="text" maxlength="140" placeholder="Gate code, apartment number, etc." /></label>
           <button type="submit">Create Ride Request</button>
