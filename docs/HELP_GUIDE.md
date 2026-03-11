@@ -5,7 +5,7 @@ This guide explains exactly how each role should use the app today.
 ## Before you begin (all users)
 
 1. Confirm your account is approved.
-2. Sign in through the system bootstrap login flow managed by your organization.
+2. Sign in with your email and password. New registrations remain pending until approved by an admin.
 3. Verify your role from the **Session User** card.
 4. If your role is wrong or pending, contact a people manager or super admin.
 

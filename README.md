@@ -26,6 +26,8 @@ In Supabase SQL Editor:
    4. `migrations/004_queue_optimizer_inputs.sql`
    5. `migrations/005_sessions.sql`
    6. `migrations/006_add_travel_time_seconds.sql`
+   7. `migrations/007_add_solver_output_columns.sql`
+   8. `migrations/008_auth_and_superadmin.sql`
 
 ### 3) Environment configuration
 
@@ -37,7 +39,6 @@ Required values:
 - `SUPABASE_SERVICE_ROLE_KEY=<service_role key>`
 - `SUPABASE_ANON_KEY=<anon/public key used by browser realtime subscription>`
 - `SESSION_SECRET=<secure random value>`
-- `BOOTSTRAP_AUTH_TOKEN=<secure random value>`
 - `POSTMARK_API_TOKEN=<postmark server token>`
 
 ### 4) Install and run
@@ -80,7 +81,6 @@ Required in production:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_ANON_KEY` (public browser key for Supabase Realtime subscriptions)
 - `SESSION_SECRET` (HMAC signing key for session integrity)
-- `BOOTSTRAP_AUTH_TOKEN` (bootstrap login secret used only server-side)
 - `NODE_ENV=production`
 
 Optional:
@@ -135,6 +135,7 @@ npm run deploy:tls
 
 - `GET /api/health`
 - `POST /api/auth/login`
+- `POST /api/auth/register`
 - `POST /api/auth/logout`
 - `GET /api/users`
 - `GET /api/rides`
@@ -144,6 +145,7 @@ npm run deploy:tls
 - `POST /api/rides/:rideId/assign` (optimistic concurrency via revision/updatedAt)
 - `POST /api/rides/:rideId/cancel`
 - `POST /api/drivers/:driverId/queue/reorder` (atomic queue reorder + concurrency checks)
+- `PATCH /api/admin/users/:userId` (people_manager/super_admin only; updates role/status and invalidates sessions)
 
 ### Database migrations
 
@@ -155,6 +157,8 @@ Run in order:
 4. `migrations/004_queue_optimizer_inputs.sql`
 5. `migrations/005_sessions.sql`
 6. `migrations/006_add_travel_time_seconds.sql`
+7. `migrations/007_add_solver_output_columns.sql`
+8. `migrations/008_auth_and_superadmin.sql`
 
 ## Production runbook
 
@@ -172,7 +176,7 @@ Run in order:
 
 All production secrets must live in the managed host secret manager (for example: Render/Fly/Railway encrypted secrets or cloud secret manager integrations). Do **not** commit secrets to git, `.env` files in production, CI logs, or dashboards.
 
-Rotate `SESSION_SECRET`, bootstrap auth tokens, `SUPABASE_SERVICE_ROLE_KEY`, `POSTMARK_API_TOKEN`, and Twilio credentials every 90 days (or sooner after incidents). Email is Postmark-managed in this system; treat `POSTMARK_API_TOKEN` and Postmark template/config credentials as high-priority secrets and rotate/validate them in the same operational window.
+Rotate `SESSION_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTMARK_API_TOKEN`, and Twilio credentials every 90 days (or sooner after incidents). Email is Postmark-managed in this system; treat `POSTMARK_API_TOKEN` and Postmark template/config credentials as high-priority secrets and rotate/validate them in the same operational window.
 
 #### Session secret rollover (multi-key verification)
 
@@ -236,21 +240,6 @@ Rollover procedure:
 2. Deploy and verify active users remain authenticated during the `SESSION_TTL_MS` window.
 3. After at least one full TTL window passes, remove retired keys from `SESSION_SECRET_PREVIOUS`.
 4. Redeploy and confirm tokens signed with retired keys fail verification.
-5. Log rotation timestamp, owner, and tracking ticket.
-
-#### Bootstrap token rotation
-
-Use explicit token versions for bootstrap auth:
-
-- `BOOTSTRAP_AUTH_TOKEN_CURRENT`
-- `BOOTSTRAP_AUTH_TOKEN_PREVIOUS` (optional list during controlled migration window)
-
-Rotation procedure:
-
-1. Create `BOOTSTRAP_AUTH_TOKEN_CURRENT` in managed secret storage and set prior value in `BOOTSTRAP_AUTH_TOKEN_PREVIOUS`.
-2. Cut over all clients/admin tooling/jobs to the current token.
-3. Remove old token from previous list after cutover verification.
-4. Confirm retired token now fails auth checks and alerting captures the failure.
 5. Log rotation timestamp, owner, and tracking ticket.
 
 ### 3) PII incident response

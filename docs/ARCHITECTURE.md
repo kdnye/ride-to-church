@@ -84,10 +84,13 @@ From `ride_assignments`:
 ## Auth
 
 - `POST /api/auth/login`
-  - Body: `{ bootstrapToken, userId }`
-  - Validates bootstrap token + approved user status.
-  - Creates in-memory session and sets secure cookie.
+  - Body: `{ email, password }`
+  - Validates password via Postgres `pgcrypto` RPC and enforces approved status.
+  - Creates server session and sets secure cookie.
   - Returns `sessionSignature` (HMAC-based) + expiration.
+- `POST /api/auth/register`
+  - Body: `{ fullName, email, password, phone? }`
+  - Creates a pending member account with hashed password via RPC.
 - `POST /api/auth/logout`
   - Requires authenticated session.
   - Clears cookie and deletes server session entry.
@@ -100,6 +103,13 @@ From `ride_assignments`:
   - Roles: member/volunteer_driver/volunteer_dispatcher/people_manager/super_admin
 - `GET /api/drivers/:driverId/queue`
   - Roles: volunteer_driver/volunteer_dispatcher/people_manager/super_admin
+
+## Admin write paths
+
+- `PATCH /api/admin/users/:userId`
+  - Roles: people_manager/super_admin
+  - Allows updates to `role` and/or `approval_status`.
+  - Invalidates active sessions for the target user so RBAC changes apply immediately.
 
 ## Ride write paths
 
