@@ -24,6 +24,8 @@ In Supabase SQL Editor:
    2. `migrations/002_indexes.sql`
    3. `migrations/003_dispatch_concurrency.sql`
    4. `migrations/004_queue_optimizer_inputs.sql`
+   5. `migrations/005_sessions.sql`
+   6. `migrations/006_add_travel_time_seconds.sql`
 
 ### 3) Environment configuration
 
@@ -84,6 +86,8 @@ Optional:
 - `PORT` (defaults to `4173`)
 - `SESSION_TTL_MS` (defaults to 8 hours)
 - `TRUST_PROXY=true` (default; trust `x-forwarded-proto` from managed edge)
+- `ENABLE_ROUTE_MATRIX=true` (default; when true, uses Google Routes Matrix for assignment/queue optimization)
+- `GOOGLE_MAPS_API_KEY` (required only when `ENABLE_ROUTE_MATRIX=true`)
 
 Notifications (server-side secret storage only):
 
@@ -147,6 +151,8 @@ Run in order:
 2. `migrations/002_indexes.sql`
 3. `migrations/003_dispatch_concurrency.sql`
 4. `migrations/004_queue_optimizer_inputs.sql`
+5. `migrations/005_sessions.sql`
+6. `migrations/006_add_travel_time_seconds.sql`
 
 ## Production runbook
 

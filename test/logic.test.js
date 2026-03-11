@@ -5,6 +5,7 @@ import {
   autoAssignRides,
   autoAssignRidesWithEvents,
   haversineDistanceKm,
+  nearestDrivers,
   optimizeDriverQueue,
   queueForDriver,
   reorderQueueAtomicallyWithVersionCheck,
@@ -222,4 +223,50 @@ test('optimizeDriverQueue prefers stops that satisfy tight pickup windows', () =
   });
 
   assert.equal(queue[0].id, 'near-tight-window');
+});
+
+
+test('nearestDrivers prioritizes matrix travel time before haversine distance', () => {
+  const member = { id: 'm1', coordinates: { lat: 35, lon: -90 } };
+  const drivers = [
+    { id: 'd-near', coordinates: { lat: 35.001, lon: -90 } },
+    { id: 'd-far-fast', coordinates: { lat: 35.03, lon: -90 } },
+  ];
+
+  const ranked = nearestDrivers(member, drivers, {}, {
+    travelTimeSecondsByDriverId: {
+      'd-near': 900,
+      'd-far-fast': 420,
+    },
+  });
+
+  assert.equal(ranked[0].id, 'd-far-fast');
+});
+
+test('optimizeDriverQueue can consume matrix-based travel lookup', () => {
+  const queue = optimizeDriverQueue({
+    driverCoordinates: { lat: 35, lon: -90 },
+    rides: [
+      {
+        id: 'slow-by-matrix',
+        status: 'assigned',
+        scheduledFor: '2026-01-01T09:00:00Z',
+        member: { coordinates: { lat: 35.01, lon: -90 } },
+      },
+      {
+        id: 'fast-by-matrix',
+        status: 'assigned',
+        scheduledFor: '2026-01-01T09:00:00Z',
+        member: { coordinates: { lat: 35.02, lon: -90 } },
+      },
+    ],
+    travelTimeLookup(origin, destination) {
+      if (!origin || !destination) return null;
+      if (destination.lat === 35.01) return 2400;
+      if (destination.lat === 35.02) return 300;
+      return null;
+    },
+  });
+
+  assert.equal(queue[0].id, 'fast-by-matrix');
 });

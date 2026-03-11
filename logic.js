@@ -16,21 +16,32 @@ export function haversineDistanceKm(a, b) {
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
 }
 
-export function nearestDrivers(member, drivers, queueLoads) {
+export function nearestDrivers(member, drivers, queueLoads, { travelTimeSecondsByDriverId } = {}) {
   return drivers
     .map((driver) => {
       const distanceKm = haversineDistanceKm(member.coordinates, driver.coordinates);
+      const travelTimeSeconds = Number(travelTimeSecondsByDriverId?.[driver.id]);
       return {
         ...driver,
         distanceKm,
+        travelTimeSeconds: Number.isFinite(travelTimeSeconds) ? travelTimeSeconds : null,
         load: queueLoads[driver.id] ?? 0,
       };
     })
-    .sort((a, b) => a.distanceKm - b.distanceKm || a.load - b.load)
+    .sort((a, b) => {
+      const aDuration = a.travelTimeSeconds ?? Number.POSITIVE_INFINITY;
+      const bDuration = b.travelTimeSeconds ?? Number.POSITIVE_INFINITY;
+      return aDuration - bDuration || a.distanceKm - b.distanceKm || a.load - b.load;
+    })
     .slice(0, 3);
 }
 
-export function autoAssignRides({ rides, users, maxRidesPerDriver = Infinity }) {
+export function autoAssignRides({
+  rides,
+  users,
+  maxRidesPerDriver = Infinity,
+  travelTimeSecondsByMemberDriver = {},
+}) {
   const drivers = users.filter(
     (u) => u.role === 'volunteer_driver' && u.approval_status === 'approved',
   );
@@ -48,7 +59,9 @@ export function autoAssignRides({ rides, users, maxRidesPerDriver = Infinity }) 
     const member = users.find((u) => u.id === ride.memberId);
     if (!member) continue;
 
-    const candidates = nearestDrivers(member, drivers, queueLoads)
+    const candidates = nearestDrivers(member, drivers, queueLoads, {
+      travelTimeSecondsByDriverId: travelTimeSecondsByMemberDriver[member.id],
+    })
       .filter((driver) => queueLoads[driver.id] < maxRidesPerDriver);
     if (!candidates.length) continue;
 
@@ -57,6 +70,7 @@ export function autoAssignRides({ rides, users, maxRidesPerDriver = Infinity }) 
     ride.driverId = selected.id;
     ride.status = 'assigned';
     ride.queueOrder = queueLoads[selected.id];
+    ride.travelTimeSeconds = selected.travelTimeSeconds ?? null;
 
     assignments.push({ rideId: ride.id, driverId: selected.id });
   }
@@ -69,6 +83,7 @@ export function autoAssignRidesWithEvents({
   users,
   maxRidesPerDriver = Infinity,
   emitEvent,
+  travelTimeSecondsByMemberDriver = {},
 }) {
   const assignments = [];
   const emittedEvents = [];
@@ -94,7 +109,9 @@ export function autoAssignRidesWithEvents({
     const member = users.find((u) => u.id === ride.memberId);
     if (!member) continue;
 
-    const candidates = nearestDrivers(member, drivers, queueLoads)
+    const candidates = nearestDrivers(member, drivers, queueLoads, {
+      travelTimeSecondsByDriverId: travelTimeSecondsByMemberDriver[member.id],
+    })
       .filter((driver) => queueLoads[driver.id] < maxRidesPerDriver);
     if (!candidates.length) continue;
 
@@ -103,6 +120,7 @@ export function autoAssignRidesWithEvents({
     ride.driverId = selected.id;
     ride.status = 'assigned';
     ride.queueOrder = queueLoads[selected.id];
+    ride.travelTimeSeconds = selected.travelTimeSeconds ?? null;
 
     assignments.push({ rideId: ride.id, driverId: selected.id });
 
@@ -243,7 +261,14 @@ export function getRideServiceMinutes(ride) {
   return DEFAULT_STOP_SERVICE_MINUTES + Math.max(0, wheelchairBuffer);
 }
 
-function routeCost(queue, { startCoordinates, speedKmh = DEFAULT_SPEED_KMH } = {}) {
+function routeCost(
+  queue,
+  {
+    startCoordinates,
+    speedKmh = DEFAULT_SPEED_KMH,
+    travelTimeLookup,
+  } = {},
+) {
   if (!queue.length) return 0;
   const speedKmPerMin = speedKmh / 60;
   let total = 0;
@@ -253,7 +278,12 @@ function routeCost(queue, { startCoordinates, speedKmh = DEFAULT_SPEED_KMH } = {
   for (const ride of queue) {
     const memberCoordinates = ride.member.coordinates;
     const legDistanceKm = current ? haversineDistanceKm(current, memberCoordinates) : 0;
-    const legMinutes = legDistanceKm / speedKmPerMin;
+    const travelSeconds = typeof travelTimeLookup === 'function'
+      ? travelTimeLookup(current, memberCoordinates)
+      : null;
+    const legMinutes = Number.isFinite(travelSeconds)
+      ? (travelSeconds / 60)
+      : (legDistanceKm / speedKmPerMin);
     total += legDistanceKm;
     timeCursor += legMinutes;
 
@@ -333,7 +363,12 @@ function twoOpt(queue, options) {
   return best;
 }
 
-export function optimizeDriverQueue({ rides, driverCoordinates, speedKmh = DEFAULT_SPEED_KMH }) {
+export function optimizeDriverQueue({
+  rides,
+  driverCoordinates,
+  speedKmh = DEFAULT_SPEED_KMH,
+  travelTimeLookup,
+}) {
   const assigned = rides.filter((ride) => ride.status === 'assigned' && ride.member?.coordinates);
   if (assigned.length <= 1) {
     return assigned.map((ride, index) => ({ ...ride, queueOrder: index + 1 }));
@@ -343,6 +378,7 @@ export function optimizeDriverQueue({ rides, driverCoordinates, speedKmh = DEFAU
   const optimized = twoOpt(seeded, {
     startCoordinates: driverCoordinates,
     speedKmh,
+    travelTimeLookup,
   });
 
   return optimized.map((ride, index) => ({ ...ride, queueOrder: index + 1 }));
