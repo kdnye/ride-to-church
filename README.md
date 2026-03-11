@@ -168,15 +168,90 @@ Run in order:
    - `curl -I http://<domain>` returns redirect to HTTPS
    - `curl -I https://<domain>` returns HSTS header
 
-### 2) Secret rotation policy
+### 2) Secret Management & Rotation
 
-- Rotate `SESSION_SECRET`, `BOOTSTRAP_AUTH_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTMARK_API_TOKEN`, and Twilio credentials every 90 days (or sooner after incidents).
-- Rotation workflow:
-  1. Create new secret version in host secret manager.
-  2. Deploy with dual-read where possible (if supported).
-  3. Invalidate previous value.
-  4. Confirm app health + notification send path.
-  5. Record rotation metadata (who/when/ticket).
+All production secrets must live in the managed host secret manager (for example: Render/Fly/Railway encrypted secrets or cloud secret manager integrations). Do **not** commit secrets to git, `.env` files in production, CI logs, or dashboards.
+
+Rotate `SESSION_SECRET`, bootstrap auth tokens, `SUPABASE_SERVICE_ROLE_KEY`, `POSTMARK_API_TOKEN`, and Twilio credentials every 90 days (or sooner after incidents). Email is Postmark-managed in this system; treat `POSTMARK_API_TOKEN` and Postmark template/config credentials as high-priority secrets and rotate/validate them in the same operational window.
+
+#### Session secret rollover (multi-key verification)
+
+Use a controlled rollover window so existing sessions remain valid until TTL expiration:
+
+- Signing key: `SESSION_SECRET_CURRENT`
+- Verification keys: `[SESSION_SECRET_CURRENT, ...SESSION_SECRET_PREVIOUS]`
+- `SESSION_SECRET_PREVIOUS` should be a delimiter-separated list from the secret manager (example: comma-delimited)
+
+```js
+import crypto from 'node:crypto';
+
+const SESSION_SECRET_CURRENT = process.env.SESSION_SECRET_CURRENT;
+const SESSION_SECRET_PREVIOUS = (process.env.SESSION_SECRET_PREVIOUS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+if (!SESSION_SECRET_CURRENT) {
+  throw new Error('Missing SESSION_SECRET_CURRENT');
+}
+
+const VERIFY_KEYS = [SESSION_SECRET_CURRENT, ...SESSION_SECRET_PREVIOUS];
+
+export function signSession(payload) {
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto
+    .createHmac('sha256', SESSION_SECRET_CURRENT)
+    .update(body)
+    .digest('base64url');
+  return `${body}.${sig}`;
+}
+
+export function verifySession(token) {
+  const [body, sig] = String(token || '').split('.');
+  if (!body || !sig) return null;
+
+  for (const key of VERIFY_KEYS) {
+    const expected = crypto
+      .createHmac('sha256', key)
+      .update(body)
+      .digest('base64url');
+
+    const sigBuf = Buffer.from(sig);
+    const expectedBuf = Buffer.from(expected);
+    if (
+      sigBuf.length === expectedBuf.length &&
+      crypto.timingSafeEqual(sigBuf, expectedBuf)
+    ) {
+      return JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    }
+  }
+
+  return null;
+}
+```
+
+Rollover procedure:
+
+1. Generate and store new `SESSION_SECRET_CURRENT`; move old current secret into `SESSION_SECRET_PREVIOUS`.
+2. Deploy and verify active users remain authenticated during the `SESSION_TTL_MS` window.
+3. After at least one full TTL window passes, remove retired keys from `SESSION_SECRET_PREVIOUS`.
+4. Redeploy and confirm tokens signed with retired keys fail verification.
+5. Log rotation timestamp, owner, and tracking ticket.
+
+#### Bootstrap token rotation
+
+Use explicit token versions for bootstrap auth:
+
+- `BOOTSTRAP_AUTH_TOKEN_CURRENT`
+- `BOOTSTRAP_AUTH_TOKEN_PREVIOUS` (optional list during controlled migration window)
+
+Rotation procedure:
+
+1. Create `BOOTSTRAP_AUTH_TOKEN_CURRENT` in managed secret storage and set prior value in `BOOTSTRAP_AUTH_TOKEN_PREVIOUS`.
+2. Cut over all clients/admin tooling/jobs to the current token.
+3. Remove old token from previous list after cutover verification.
+4. Confirm retired token now fails auth checks and alerting captures the failure.
+5. Log rotation timestamp, owner, and tracking ticket.
 
 ### 3) PII incident response
 
