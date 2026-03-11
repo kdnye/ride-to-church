@@ -303,17 +303,20 @@ async function requireSession(req, res) {
 
 async function login(res, { email, password }) {
   if (!email || !password) {
-    return json(res, 400, { error: 'Email and password required' });
+    return json(res, 400, { error: 'Email and password are required' });
   }
 
-  const rows = await sbRequest('/rest/v1/rpc/verify_user_password', {
+  const rows = await sbRequest('/rest/v1/rpc/verify_login', {
     method: 'POST',
-    body: JSON.stringify({ p_email: email, p_password: password }),
+    body: JSON.stringify({ p_email: email, p_password: password })
   });
 
-  const user = rows?.[0] ?? null;
-  if (!user || user.approval_status !== 'approved') {
-    return json(res, 403, { error: 'Invalid credentials or account pending approval' });
+  const user = rows[0];
+  if (!user) {
+    return json(res, 401, { error: 'Invalid credentials' });
+  }
+  if (user.approval_status !== 'approved') {
+    return json(res, 403, { error: 'Account pending admin approval' });
   }
 
   const sessionId = crypto.randomUUID();
@@ -339,25 +342,17 @@ async function login(res, { email, password }) {
 }
 
 async function registerUser(res, { fullName, email, password, phone }) {
-  if (!fullName || !email || !password) {
-    return json(res, 400, { error: 'fullName, email, and password are required' });
-  }
+  if (!email || !password || !fullName) return json(res, 400, { error: 'Required fields missing' });
 
   try {
     await sbRequest('/rest/v1/rpc/register_user', {
       method: 'POST',
-      body: JSON.stringify({
-        p_full_name: fullName,
-        p_email: email,
-        p_password: password,
-        p_phone: phone ?? null,
-      }),
+      body: JSON.stringify({ p_full_name: fullName, p_email: email, p_password: password, p_phone: phone || null })
     });
-  } catch {
+    return json(res, 201, { message: 'Registration successful.' });
+  } catch (error) {
     return json(res, 409, { error: 'Registration failed. Email may already exist.' });
   }
-
-  return json(res, 201, { message: 'Registration successful. Pending admin approval.' });
 }
 
 async function updateUser(res, targetUserId, { role, approval_status }) {
