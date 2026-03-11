@@ -112,33 +112,45 @@ function renderNav() {
     .map(r => `<a href="${r.path}">${r.label}</a>`)
     .join('');
 }
+// --- Safe Listener Helper ---
+function safeAddListener(selector, event, handler) {
+  const el = document.querySelector(selector);
+  if (el) {
+    el.addEventListener(event, handler);
+  } else {
+    console.warn(`Warning: Could not find DOM element ${selector} to attach ${event} listener.`);
+  }
+}
 
 // --- INITIALIZATION ---
 boot();
 
 async function boot() {
-  document.querySelector('#pickup-date').value = nextSunday();
+  const pickupDate = document.querySelector('#pickup-date');
+  if (pickupDate) pickupDate.value = nextSunday();
   
-  requestForm.addEventListener('submit', onCreateRideRequest);
-  document.querySelector('#auto-assign-btn').addEventListener('click', onAutoAssign);
-  driverSelect.addEventListener('change', renderDriverQueue);
-  document.querySelector('#save-settings-btn').addEventListener('click', onSaveSettings);
-  document.querySelector('#send-broadcast-btn').addEventListener('click', onSendBroadcast);
+  safeAddListener('#request-form', 'submit', onCreateRideRequest);
+  safeAddListener('#auto-assign-btn', 'click', onAutoAssign);
+  safeAddListener('#driver-select', 'change', renderDriverQueue);
+  safeAddListener('#save-settings-btn', 'click', onSaveSettings);
+  safeAddListener('#send-broadcast-btn', 'click', onSendBroadcast);
 
-  document.querySelector('#login-form').addEventListener('submit', onLogin);
-  document.querySelector('#register-form').addEventListener('submit', onRegister);
-  document.querySelector('#logout-btn').addEventListener('click', onLogout);
+  safeAddListener('#login-form', 'submit', onLogin);
+  safeAddListener('#register-form', 'submit', onRegister);
+  safeAddListener('#logout-btn', 'click', onLogout);
 
+  // Initialize routing immediately to display the correct view
   navigate();
   renderNav();
 
+  // Only fetch protected data if we actually have a logged-in user
   if (currentActor()) {
     try {
       await hydrateState();
       refreshAll();
       await initRideRealtimeSubscription();
     } catch (error) {
-      console.error('Failed to load protected data:', error);
+      console.error('Boot data load failed:', error);
     }
   }
 }
