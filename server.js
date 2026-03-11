@@ -29,6 +29,16 @@ const MIME_TYPES = {
   '.json': 'application/json; charset=utf-8',
 };
 
+const LEGACY_ROLE_MAP = {
+  dispatcher: 'volunteer_dispatcher',
+  manager: 'people_manager',
+  admin: 'super_admin',
+};
+
+function normalizeRole(role) {
+  return LEGACY_ROLE_MAP[role] ?? role;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     if (!isSecureRequest(req)) {
@@ -79,48 +89,48 @@ async function handleApi(req, res) {
   if (!session) return;
 
   if (req.method === 'GET' && url.pathname === '/api/users') {
-    if (!requireRole(res, session, ['dispatcher', 'manager', 'admin'])) return;
+    if (!requireRole(res, session, ['volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     return json(res, 200, { users: await fetchUsers() });
   }
   if (req.method === 'GET' && url.pathname === '/api/rides') {
-    if (!requireRole(res, session, ['member', 'volunteer_driver', 'dispatcher', 'manager', 'admin'])) return;
+    if (!requireRole(res, session, ['member', 'volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     return json(res, 200, { rides: await fetchRides() });
   }
   if (req.method === 'POST' && url.pathname === '/api/rides') {
-    if (!requireRole(res, session, ['member', 'dispatcher', 'manager', 'admin'])) return;
+    if (!requireRole(res, session, ['member', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     const body = await readJson(req);
     return json(res, 201, { ride: await createRide({ ...body, actorId: session.userId }) });
   }
   if (req.method === 'POST' && url.pathname === '/api/rides/auto-assign') {
-    if (!requireRole(res, session, ['dispatcher', 'manager', 'admin'])) return;
+    if (!requireRole(res, session, ['volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     const body = await readJson(req);
     return json(res, 200, await autoAssign(session.userId, body.maxRidesPerDriver ?? Infinity));
   }
 
   const assignMatch = url.pathname.match(/^\/api\/rides\/([^/]+)\/assign$/);
   if (req.method === 'POST' && assignMatch) {
-    if (!requireRole(res, session, ['dispatcher', 'manager', 'admin'])) return;
+    if (!requireRole(res, session, ['volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     const body = await readJson(req);
     return assignRide(res, assignMatch[1], { ...body, actorId: session.userId });
   }
 
   const cancelMatch = url.pathname.match(/^\/api\/rides\/([^/]+)\/cancel$/);
   if (req.method === 'POST' && cancelMatch) {
-    if (!requireRole(res, session, ['dispatcher', 'manager', 'admin'])) return;
+    if (!requireRole(res, session, ['volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     const body = await readJson(req);
     return cancelRide(res, cancelMatch[1], { ...body, actorId: session.userId });
   }
 
   const reorderMatch = url.pathname.match(/^\/api\/drivers\/([^/]+)\/queue\/reorder$/);
   if (req.method === 'POST' && reorderMatch) {
-    if (!requireRole(res, session, ['dispatcher', 'manager', 'admin'])) return;
+    if (!requireRole(res, session, ['volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     const body = await readJson(req);
     return reorderDriverQueue(res, reorderMatch[1], { ...body, actorId: session.userId });
   }
 
   const queueMatch = url.pathname.match(/^\/api\/drivers\/([^/]+)\/queue$/);
   if (req.method === 'GET' && queueMatch) {
-    if (!requireRole(res, session, ['volunteer_driver', 'dispatcher', 'manager', 'admin'])) return;
+    if (!requireRole(res, session, ['volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     return json(res, 200, { queue: await fetchDriverQueue(queueMatch[1]) });
   }
 
@@ -189,7 +199,7 @@ async function createRide({ memberId, scheduledFor, pickupNotes, wheelchairPicku
 }
 
 function requireRole(res, session, allowedRoles) {
-  if (allowedRoles.includes(session.role)) return true;
+  if (allowedRoles.includes(normalizeRole(session.role))) return true;
   json(res, 403, { error: 'Forbidden for current role' });
   return false;
 }
@@ -198,7 +208,7 @@ function requireRole(res, session, allowedRoles) {
 
 async function resolveSession(req, res) {
   if (NODE_ENV !== 'production') {
-    return { userId: 'dev-admin', role: 'admin', approvalStatus: 'approved' };
+    return { userId: 'dev-admin', role: 'super_admin', approvalStatus: 'approved' };
   }
   return requireSession(req, res);
 }
@@ -238,7 +248,7 @@ async function login(res, { bootstrapToken, userId }) {
   const sessionId = crypto.randomUUID();
   sessions.set(sessionId, {
     userId: user.id,
-    role: user.role,
+    role: normalizeRole(user.role),
     approvalStatus: user.approval_status,
     expiresAt: Date.now() + SESSION_TTL_MS,
   });
@@ -246,7 +256,7 @@ async function login(res, { bootstrapToken, userId }) {
   return json(res, 200, {
     user: {
       id: user.id,
-      role: user.role,
+      role: normalizeRole(user.role),
       approvalStatus: user.approval_status,
     },
     sessionSignature: signSessionId(sessionId),
