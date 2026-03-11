@@ -49,16 +49,6 @@ const MIME_TYPES = {
   '.json': 'application/json; charset=utf-8',
 };
 
-const LEGACY_ROLE_MAP = {
-  dispatcher: 'volunteer_dispatcher',
-  manager: 'people_manager',
-  admin: 'super_admin',
-};
-
-function normalizeRole(role) {
-  return LEGACY_ROLE_MAP[role] ?? role;
-}
-
 function readPositiveIntEnv(name, fallback) {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -173,7 +163,7 @@ async function handleApi(req, res) {
   if (req.method === 'GET' && queueMatch) {
     if (!requireRole(res, session, ['volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     const requestedDriverId = queueMatch[1];
-    if (!canAccessDriverQueue({ ...session, role: normalizeRole(session.role) }, requestedDriverId)) {
+    if (!canAccessDriverQueue(session, requestedDriverId)) {
       return json(res, 403, { error: 'Forbidden for current role' });
     }
     return json(res, 200, { queue: await fetchDriverQueue(requestedDriverId) });
@@ -247,7 +237,7 @@ async function createRide({ memberId, scheduledFor, pickupNotes, wheelchairPicku
 }
 
 function requireRole(res, session, allowedRoles) {
-  if (allowedRoles.includes(normalizeRole(session.role))) return true;
+  if (allowedRoles.includes(session.role)) return true;
   json(res, 403, { error: 'Forbidden for current role' });
   return false;
 }
@@ -313,7 +303,7 @@ async function login(res, { bootstrapToken, userId }) {
   await createSession({
     id: sessionId,
     userId: user.id,
-    role: normalizeRole(user.role),
+    role: user.role,
     approvalStatus: user.approval_status,
     expiresAt: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
   });
@@ -321,7 +311,7 @@ async function login(res, { bootstrapToken, userId }) {
   return json(res, 200, {
     user: {
       id: user.id,
-      role: normalizeRole(user.role),
+      role: user.role,
       approvalStatus: user.approval_status,
     },
     sessionSignature: signSessionId(sessionId),

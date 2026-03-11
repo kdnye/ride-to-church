@@ -13,7 +13,7 @@ This document is a full architecture refresh for the current codebase, including
   - Handles login/session lifecycle and role-based authorization.
   - Reads/writes ride/user data from Supabase PostgREST + RPC.
 - **Browser app (`app.js`)**
-  - Renders role-based workflow screens for member, driver, dispatcher, manager, and super admin actors.
+  - Renders role-based workflow screens for member, driver, volunteer dispatcher, people manager, and super admin actors.
   - Calls the API via `src/apiClient.js`.
   - Executes optimistic updates and fallback refresh behavior.
   - Stores non-authoritative local UI settings in localStorage (`rtc-settings-v3`).
@@ -45,7 +45,7 @@ Core mapped fields:
 
 - `id`
 - `fullName` (`full_name` in DB)
-- `role` (`member`, `volunteer_driver`, `dispatcher`, `manager`, `admin` in API layer)
+- `role` (`member`, `volunteer_driver`, `volunteer_dispatcher`, `people_manager`, `super_admin`)
 - `approval_status` (`approved`, `pending`, etc.)
 - `coordinates` (POINT parsed to `{ lat, lon }`)
 
@@ -95,28 +95,28 @@ From `ride_assignments`:
 ## User and ride read paths
 
 - `GET /api/users`
-  - Roles: dispatcher/manager/admin
+  - Roles: volunteer_dispatcher/people_manager/super_admin
 - `GET /api/rides`
-  - Roles: member/volunteer_driver/dispatcher/manager/admin
+  - Roles: member/volunteer_driver/volunteer_dispatcher/people_manager/super_admin
 - `GET /api/drivers/:driverId/queue`
-  - Roles: volunteer_driver/dispatcher/manager/admin
+  - Roles: volunteer_driver/volunteer_dispatcher/people_manager/super_admin
 
 ## Ride write paths
 
 - `POST /api/rides`
-  - Roles: member/dispatcher/manager/admin
+  - Roles: member/volunteer_dispatcher/people_manager/super_admin
   - Creates a `requested` ride.
 - `POST /api/rides/auto-assign`
-  - Roles: dispatcher/manager/admin
+  - Roles: volunteer_dispatcher/people_manager/super_admin
   - Runs `autoAssignRides` and persists assignments.
 - `POST /api/rides/:rideId/assign`
-  - Roles: dispatcher/manager/admin
+  - Roles: volunteer_dispatcher/people_manager/super_admin
   - Transactional assignment via Supabase RPC with revision checks.
 - `POST /api/rides/:rideId/cancel`
-  - Roles: dispatcher/manager/admin
+  - Roles: volunteer_dispatcher/people_manager/super_admin
   - Validates expected revision/timestamp, marks cancelled, deletes assignment row.
 - `POST /api/drivers/:driverId/queue/reorder`
-  - Roles: dispatcher/manager/admin
+  - Roles: volunteer_dispatcher/people_manager/super_admin
   - Transactional reorder RPC with stale version detection.
 
 ## Error conventions
@@ -255,5 +255,5 @@ Derived from `state.auditLogs` and user list:
 4. **Audit persistence**
    - Move `state.auditLogs` from client-only to durable server-side audit trail.
 5. **Role naming consistency**
-   - Align role names between frontend (`volunteer_dispatcher`, `people_manager`, `super_admin`) and server/API (`dispatcher`, `manager`, `admin`) to avoid drift.
+   - Ensure role names remain aligned with canonical database enums (`member`, `volunteer_driver`, `volunteer_dispatcher`, `people_manager`, `super_admin`).
 
