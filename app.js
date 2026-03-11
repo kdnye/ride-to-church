@@ -126,7 +126,7 @@ async function onAutoAssign() {
     state.rides = response.rides;
     assignResult.textContent = `Assigned ${response.assignments.length} ride(s).`;
   } catch (error) {
-    state.rides = before;
+    state.rides = error.details?.rides ?? before;
     assignResult.textContent = `Auto-assign failed: ${error.message}`;
   }
   refreshAll();

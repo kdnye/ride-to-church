@@ -8,7 +8,10 @@ async function request(path, options = {}) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error ?? `Request failed: ${response.status}`);
+    const error = new Error(payload.error ?? `Request failed: ${response.status}`);
+    error.status = response.status;
+    error.details = payload;
+    throw error;
   }
   return payload;
 }
@@ -31,6 +34,19 @@ export const apiClient = {
   },
   async autoAssign(input) {
     return request('/rides/auto-assign', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+
+  async assignRide(rideId, input) {
+    return request(`/rides/${rideId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  async reorderDriverQueue(driverId, input) {
+    return request(`/drivers/${driverId}/queue/reorder`, {
       method: 'POST',
       body: JSON.stringify(input),
     });
