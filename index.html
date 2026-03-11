@@ -10,10 +10,11 @@
     <header>
       <h1>Ride to Church</h1>
       <p>Dispatcher + Driver workflow with approvals, admin controls, and audit logging.</p>
+      <nav id="main-nav"></nav>
     </header>
 
     <main>
-      <section class="card">
+      <section class="card page-view" id="view-profile">
         <h2>Session User</h2>
         <label>
           Acting as
@@ -22,7 +23,7 @@
         <p id="actor-status" class="muted"></p>
       </section>
 
-      <section class="card">
+      <section class="card page-view" id="view-request">
         <h2>Member Request</h2>
         <form id="request-form">
           <label>
@@ -41,7 +42,7 @@
         </form>
       </section>
 
-      <section class="card">
+      <section class="card page-view" id="view-dispatch">
         <h2>Dispatcher Board</h2>
         <div class="actions">
           <button id="auto-assign-btn">Run Auto-Assign</button>
@@ -59,7 +60,7 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card page-view" id="view-driver">
         <h2>Driver Mobile View</h2>
         <label>
           Driver
@@ -68,17 +69,18 @@
         <ol id="driver-queue"></ol>
       </section>
 
-      <section class="card" id="admin-users" hidden>
-        <h2>User Management</h2>
+      <section class="card page-view" id="view-admin">
+        <h2>Admin / Users</h2>
+        <p class="muted" id="admin-hint">Only approved people managers and super admins can view this module.</p>
         <div id="user-management-list"></div>
-      </section>
-      <section class="card" id="admin-hint">
-        <h2>Admin /users</h2>
-        <p class="muted">Only approved people managers and super admins can view this module.</p>
+
+        <h2 style="margin-top: 2rem">Audit Log Viewer</h2>
+        <ul id="audit-log"></ul>
       </section>
 
-      <section class="card" id="super-admin-settings" hidden>
+      <section class="card page-view" id="view-settings">
         <h2>Super Admin Settings</h2>
+        <p class="muted" id="super-admin-hint">Only approved super admins can update config and trigger broadcasts.</p>
         <label>
           Max rides per driver
           <input id="max-rides-per-driver" type="number" min="1" />
@@ -92,15 +94,6 @@
           <button id="send-broadcast-btn" type="button">Send Broadcast</button>
         </div>
         <p id="broadcast-status" class="muted"></p>
-      </section>
-      <section class="card" id="super-admin-hint">
-        <h2>Super Admin Settings</h2>
-        <p class="muted">Only approved super admins can update config and trigger broadcasts.</p>
-      </section>
-
-      <section class="card">
-        <h2>Audit Log Viewer</h2>
-        <ul id="audit-log"></ul>
       </section>
     </main>
 
