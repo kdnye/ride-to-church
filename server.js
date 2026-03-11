@@ -32,6 +32,8 @@ const BOOTSTRAP_AUTH_TOKEN = process.env.BOOTSTRAP_AUTH_TOKEN;
 const TRUST_PROXY = (process.env.TRUST_PROXY ?? 'true') === 'true';
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY ?? '';
 const ENABLE_ROUTE_MATRIX = (process.env.ENABLE_ROUTE_MATRIX ?? 'true') === 'true';
+const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? '';
 const POSTGRES_INT_MAX = 2147483647;
 const MAX_RIDES_PER_DRIVER = readPositiveIntEnv('MAX_RIDES_PER_DRIVER', POSTGRES_INT_MAX);
 
@@ -100,6 +102,13 @@ async function handleApi(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/api/health') {
     return json(res, 200, { ok: true });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/public-config') {
+    return json(res, 200, {
+      supabaseUrl: SUPABASE_URL || null,
+      supabaseAnonKey: SUPABASE_ANON_KEY || null,
+    });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/login') {
@@ -706,7 +715,7 @@ function isSecureRequest(req) {
 function securityHeaders() {
   return {
     'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
-    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' wss: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
     'X-Frame-Options': 'DENY',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',

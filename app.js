@@ -1,4 +1,5 @@
 import { autoAssignRides, nearestDrivers } from './logic.js';
+import { createClient } from '@supabase/supabase-js';
 import { apiClient } from './src/apiClient.js';
 
 const SETTINGS_STORAGE_KEY = 'rtc-settings-v3';
@@ -52,6 +53,16 @@ const ROLE_LABELS = {
   super_admin: 'Super Admin',
 };
 
+const BOARD_RELEVANT_STATUSES = new Set(['requested', 'assigned', 'cancelled']);
+const REALTIME_REFRESH_DEBOUNCE_MS = 200;
+
+const realtime = {
+  client: null,
+  channel: null,
+  debounceHandle: null,
+  isRefreshQueued: false,
+};
+
 boot();
 
 async function boot() {
@@ -68,9 +79,88 @@ async function boot() {
     await hydrateState();
     renderActorSelect();
     refreshAll();
+    await initRideRealtimeSubscription();
   } catch (error) {
     assignResult.textContent = `Failed to load data: ${error.message}`;
   }
+}
+
+async function initRideRealtimeSubscription() {
+  if (typeof window !== 'undefined' && typeof window.__rtcRealtimeCleanup === 'function') {
+    window.__rtcRealtimeCleanup();
+  }
+
+  const config = await loadPublicSupabaseConfig();
+  if (!config) return;
+
+  realtime.client = createClient(config.supabaseUrl, config.supabaseAnonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+
+  const onRideChange = (payload) => {
+    if (!isDispatcherBoardRelevantChange(payload)) return;
+    queueRealtimeRefresh();
+  };
+
+  realtime.channel = realtime.client
+    .channel('public:rides:dispatcher-board')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'rides' }, onRideChange)
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rides' }, onRideChange)
+    .subscribe();
+
+  window.addEventListener('beforeunload', cleanupRealtimeSubscription, { once: true });
+  window.addEventListener('pagehide', cleanupRealtimeSubscription, { once: true });
+  window.__rtcRealtimeCleanup = cleanupRealtimeSubscription;
+}
+
+async function loadPublicSupabaseConfig() {
+  try {
+    const response = await fetch('/api/public-config');
+    if (!response.ok) return null;
+    const config = await response.json();
+    if (!config?.supabaseUrl || !config?.supabaseAnonKey) return null;
+    return config;
+  } catch {
+    return null;
+  }
+}
+
+function isDispatcherBoardRelevantChange(payload) {
+  const oldStatus = payload.old?.status;
+  const newStatus = payload.new?.status;
+  return BOARD_RELEVANT_STATUSES.has(newStatus) || BOARD_RELEVANT_STATUSES.has(oldStatus);
+}
+
+function queueRealtimeRefresh() {
+  if (realtime.isRefreshQueued) return;
+  realtime.isRefreshQueued = true;
+  realtime.debounceHandle = setTimeout(async () => {
+    realtime.isRefreshQueued = false;
+    realtime.debounceHandle = null;
+    try {
+      await hydrateState();
+      refreshAll();
+    } catch (error) {
+      assignResult.textContent = `Realtime refresh failed: ${error.message}`;
+    }
+  }, REALTIME_REFRESH_DEBOUNCE_MS);
+}
+
+function cleanupRealtimeSubscription() {
+  if (realtime.debounceHandle) {
+    clearTimeout(realtime.debounceHandle);
+    realtime.debounceHandle = null;
+    realtime.isRefreshQueued = false;
+  }
+  if (realtime.channel && realtime.client) {
+    realtime.client.removeChannel(realtime.channel);
+  }
+  realtime.channel = null;
+  realtime.client = null;
 }
 
 async function hydrateState() {
