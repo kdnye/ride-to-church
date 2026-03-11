@@ -172,7 +172,7 @@ async function fetchUsers() {
 }
 
 async function fetchRides() {
-  const rows = await sbRequest('/rest/v1/rides?select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position,travel_time_seconds)&order=scheduled_for.asc,created_at.asc');
+  const rows = await sbRequest('/rest/v1/rides?select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position,travel_time_seconds,estimated_arrival_time,route_polyline)&order=scheduled_for.asc,created_at.asc');
   return rows.map((row) => ({
     id: row.id,
     memberId: row.member_id,
@@ -187,6 +187,8 @@ async function fetchRides() {
     driverId: row.ride_assignments?.driver_id ?? null,
     queueOrder: row.ride_assignments?.queue_position ?? null,
     travelTimeSeconds: row.ride_assignments?.travel_time_seconds ?? null,
+    estimatedArrival: row.ride_assignments?.estimated_arrival_time ?? null,
+    routePolyline: row.ride_assignments?.route_polyline ?? null,
   }));
 }
 
@@ -371,7 +373,7 @@ async function reorderDriverQueue(res, driverId, { rideId, newPosition, actorId,
 }
 
 async function fetchRideById(rideId) {
-  const rows = await sbRequest(`/rest/v1/rides?id=eq.${rideId}&select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position,travel_time_seconds)&limit=1`);
+  const rows = await sbRequest(`/rest/v1/rides?id=eq.${rideId}&select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position,travel_time_seconds,estimated_arrival_time,route_polyline)&limit=1`);
   const row = rows[0];
   if (!row) return null;
   return {
@@ -388,6 +390,8 @@ async function fetchRideById(rideId) {
     driverId: row.ride_assignments?.driver_id ?? null,
     queueOrder: row.ride_assignments?.queue_position ?? null,
     travelTimeSeconds: row.ride_assignments?.travel_time_seconds ?? null,
+    estimatedArrival: row.ride_assignments?.estimated_arrival_time ?? null,
+    routePolyline: row.ride_assignments?.route_polyline ?? null,
   };
 }
 
@@ -452,6 +456,8 @@ async function autoAssign(actorId, maxRidesPerDriver) {
           queue_position: ride.queueOrder,
           assigned_by: actorId,
           travel_time_seconds: ride.travelTimeSeconds ?? null,
+          estimated_arrival_time: ride.estimatedArrival ?? null,
+          route_polyline: ride.routePolyline ?? null,
         }),
       });
     }));
@@ -461,7 +467,7 @@ async function autoAssign(actorId, maxRidesPerDriver) {
 }
 
 async function fetchDriverQueue(driverId) {
-  const rows = await sbRequest(`/rest/v1/ride_assignments?driver_id=eq.${driverId}&select=queue_position,travel_time_seconds,driver:users!ride_assignments_driver_id_fkey(id,coordinates),ride:rides(id,member_id,scheduled_for,pickup_notes,status,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,member:users!rides_member_id_fkey(id,full_name,coordinates))&order=queue_position.asc`);
+  const rows = await sbRequest(`/rest/v1/ride_assignments?driver_id=eq.${driverId}&select=queue_position,travel_time_seconds,estimated_arrival_time,route_polyline,driver:users!ride_assignments_driver_id_fkey(id,coordinates),ride:rides(id,member_id,scheduled_for,pickup_notes,status,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,member:users!rides_member_id_fkey(id,full_name,coordinates))&order=queue_position.asc`);
 
   return rows
     .filter((row) => row.ride?.status === 'assigned')
@@ -476,6 +482,8 @@ async function fetchDriverQueue(driverId) {
       pickupWindowEnd: row.ride.pickup_window_end ?? null,
       queueOrder: row.queue_position,
       travelTimeSeconds: row.travel_time_seconds ?? null,
+      estimatedArrival: row.estimated_arrival_time ?? null,
+      routePolyline: row.route_polyline ?? null,
       member: {
         id: row.ride.member.id,
         fullName: row.ride.member.full_name,
@@ -542,6 +550,8 @@ async function optimizeAndPersistDriverQueues(driverIds) {
           driver_id: driverId,
           queue_position: ride.queueOrder,
           travel_time_seconds: Number.isFinite(travelTimeSeconds) ? Math.round(travelTimeSeconds) : null,
+          estimated_arrival_time: ride.estimatedArrival ?? null,
+          route_polyline: ride.routePolyline ?? null,
         }),
       });
     }
