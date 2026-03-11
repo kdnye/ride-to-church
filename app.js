@@ -32,7 +32,7 @@ const assignResult = document.querySelector('#assign-result');
 const requestForm = document.querySelector('#request-form');
 const autoAssignBtn = document.querySelector('#auto-assign-btn');
 const adminPanel = document.querySelector('#admin-users');
-const pendingUsersEl = document.querySelector('#pending-users');
+const userManagementListEl = document.querySelector('#user-management-list');
 const adminHint = document.querySelector('#admin-hint');
 const maxRidesInput = document.querySelector('#max-rides-per-driver');
 const broadcastDraft = document.querySelector('#broadcast-draft');
@@ -67,7 +67,7 @@ async function boot() {
   actorSelect.addEventListener('change', refreshAll);
   document.querySelector('#save-settings-btn').addEventListener('click', onSaveSettings);
   document.querySelector('#send-broadcast-btn').addEventListener('click', onSendBroadcast);
-  pendingUsersEl.addEventListener('click', onUserApprovalAction);
+  userManagementListEl.addEventListener('change', onUserManagementChange);
 
   try {
     await hydrateState();
@@ -230,8 +230,22 @@ async function onAutoAssign() {
   refreshAll();
 }
 
-function onUserApprovalAction() {
-  // Approval UI is retained for parity, but user writes are managed via backend admin APIs in future work.
+async function onUserManagementChange(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLSelectElement)) return;
+
+  const userId = target.dataset.userId;
+  const field = target.dataset.field;
+  if (!userId || !field) return;
+
+  try {
+    await apiClient.updateUser(userId, { [field]: target.value });
+    await hydrateState();
+    refreshAll();
+    assignResult.textContent = 'User updated.';
+  } catch (error) {
+    assignResult.textContent = `User update failed: ${error.message}`;
+  }
 }
 
 function onSaveSettings() {
@@ -368,11 +382,30 @@ function renderAdminPanel() {
   const canAdmin = actor && canManageUsers(actor);
   adminPanel.hidden = !canAdmin;
   adminHint.hidden = canAdmin;
+  if (!canAdmin) return;
 
-  const pending = state.users.filter((u) => u.approval_status === 'pending');
-  pendingUsersEl.innerHTML = pending
-    .map((u) => `<li>${u.fullName} (${roleLabel(u.role)})</li>`)
-    .join('') || '<li class="muted">No pending users.</li>';
+  userManagementListEl.innerHTML = state.users
+    .map((u) => `
+      <div class="user-row" style="margin-bottom: 1rem; padding: 0.5rem; border: 1px solid #eee;">
+        <strong>${u.fullName}</strong> (${u.email || 'No email'})
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+          <select data-user-id="${u.id}" data-field="approval_status">
+            <option value="pending" ${u.approval_status === 'pending' ? 'selected' : ''}>Pending</option>
+            <option value="approved" ${u.approval_status === 'approved' ? 'selected' : ''}>Approved</option>
+            <option value="rejected" ${u.approval_status === 'rejected' ? 'selected' : ''}>Rejected</option>
+            <option value="deactivated" ${u.approval_status === 'deactivated' ? 'selected' : ''}>Deactivated</option>
+          </select>
+          <select data-user-id="${u.id}" data-field="role">
+            <option value="member" ${u.role === 'member' ? 'selected' : ''}>Member</option>
+            <option value="volunteer_driver" ${u.role === 'volunteer_driver' ? 'selected' : ''}>Driver</option>
+            <option value="volunteer_dispatcher" ${u.role === 'volunteer_dispatcher' ? 'selected' : ''}>Dispatcher</option>
+            <option value="people_manager" ${u.role === 'people_manager' ? 'selected' : ''}>Manager</option>
+            <option value="super_admin" ${u.role === 'super_admin' ? 'selected' : ''}>Super Admin</option>
+          </select>
+        </div>
+      </div>
+    `)
+    .join('') || '<p class="muted">No users available.</p>';
 }
 
 function renderSettings() {

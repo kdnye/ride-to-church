@@ -26,10 +26,6 @@ export async function sbRequest(endpoint, options = {}) {
   return data;
 }
 
-export async function fetchAuthUser(userId) {
-  const rows = await sbRequest(`/rest/v1/users?id=eq.${userId}&select=id,role,approval_status&limit=1`);
-  return rows[0] ?? null;
-}
 
 export async function createSession({ id, userId, role, approvalStatus, expiresAt }) {
   const rows = await sbRequest('/rest/v1/sessions', {
@@ -54,6 +50,13 @@ export async function fetchSessionById(sessionId) {
 
 export async function deleteSessionById(sessionId) {
   await sbRequest(`/rest/v1/sessions?id=eq.${sessionId}`, {
+    method: 'DELETE',
+    headers: { Prefer: 'return=minimal' },
+  });
+}
+
+export async function deleteSessionsByUserId(userId) {
+  await sbRequest(`/rest/v1/sessions?user_id=eq.${userId}`, {
     method: 'DELETE',
     headers: { Prefer: 'return=minimal' },
   });

@@ -56,6 +56,12 @@ export const apiClient = {
     }
     return response;
   },
+  async register(input) {
+    return request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
   async logout() {
     await request('/auth/logout', { method: 'POST' });
     window.localStorage.removeItem(SESSION_SIGNATURE_KEY);
@@ -63,6 +69,12 @@ export const apiClient = {
   async getUsers() {
     const { users } = await request('/users');
     return users;
+  },
+  async updateUser(userId, updates) {
+    return request(`/admin/users/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
   },
   async getRides() {
     const { rides } = await request('/rides');

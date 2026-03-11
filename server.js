@@ -12,9 +12,9 @@ import { buildMemberDriverTravelTimes as buildMemberDriverTravelTimesFromMatrix 
 import {
   createSession,
   deleteExpiredSessions,
+  deleteSessionsByUserId,
   deleteSessionById,
   extendSessionExpiry,
-  fetchAuthUser,
   fetchSessionById,
   sbRequest,
 } from './src/supabaseClient.js';
@@ -28,7 +28,6 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 1000 * 60 * 60 * 8);
 const SESSION_EXTEND_THRESHOLD_MS = Number(process.env.SESSION_EXTEND_THRESHOLD_MS || 1000 * 60 * 30);
 const SESSION_CLEANUP_INTERVAL_MS = Number(process.env.SESSION_CLEANUP_INTERVAL_MS || 1000 * 60 * 15);
-const BOOTSTRAP_AUTH_TOKEN = process.env.BOOTSTRAP_AUTH_TOKEN;
 const TRUST_PROXY = (process.env.TRUST_PROXY ?? 'true') === 'true';
 const ALLOW_DEV_AUTH_BYPASS = (process.env.ALLOW_DEV_AUTH_BYPASS ?? 'false') === 'true';
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY ?? '';
@@ -38,9 +37,12 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? '';
 const POSTGRES_INT_MAX = 2147483647;
 const MAX_RIDES_PER_DRIVER = readPositiveIntEnv('MAX_RIDES_PER_DRIVER', POSTGRES_INT_MAX);
 
-if (!SESSION_SECRET || !BOOTSTRAP_AUTH_TOKEN) {
-  throw new Error('SESSION_SECRET and BOOTSTRAP_AUTH_TOKEN are required.');
+if (!SESSION_SECRET) {
+  throw new Error('SESSION_SECRET is required.');
 }
+
+const VALID_USER_ROLES = new Set(['member', 'volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin']);
+const VALID_APPROVAL_STATUSES = new Set(['pending', 'approved', 'rejected', 'deactivated']);
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -107,6 +109,11 @@ async function handleApi(req, res) {
     return login(res, body);
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/auth/register') {
+    const body = await readJson(req);
+    return registerUser(res, body);
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
     const session = await resolveSession(req, res);
     if (!session) return;
@@ -122,6 +129,13 @@ async function handleApi(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/users') {
     if (!requireRole(res, session, ['volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     return json(res, 200, { users: await fetchUsers() });
+  }
+
+  const userMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+  if (req.method === 'PATCH' && userMatch) {
+    if (!requireRole(res, session, ['people_manager', 'super_admin'])) return;
+    const body = await readJson(req);
+    return updateUser(res, userMatch[1], body);
   }
   if (req.method === 'GET' && url.pathname === '/api/rides') {
     if (!requireRole(res, session, ['member', 'volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
@@ -173,10 +187,11 @@ async function handleApi(req, res) {
 }
 
 async function fetchUsers() {
-  const rows = await sbRequest('/rest/v1/users?select=id,full_name,role,approval_status,approved_by,approved_at,coordinates&order=full_name.asc');
+  const rows = await sbRequest('/rest/v1/users?select=id,full_name,email,role,approval_status,approved_by,approved_at,coordinates&order=full_name.asc');
   return rows.map((row) => ({
     id: row.id,
     fullName: row.full_name,
+    email: row.email ?? null,
     role: row.role,
     approval_status: row.approval_status,
     approved_by: row.approved_by,
@@ -286,17 +301,19 @@ async function requireSession(req, res) {
   };
 }
 
-async function login(res, { bootstrapToken, userId }) {
-  if (!bootstrapToken || bootstrapToken !== BOOTSTRAP_AUTH_TOKEN) {
-    return json(res, 401, { error: 'Invalid bootstrap token' });
-  }
-  if (!userId) {
-    return json(res, 400, { error: 'userId is required' });
+async function login(res, { email, password }) {
+  if (!email || !password) {
+    return json(res, 400, { error: 'Email and password required' });
   }
 
-  const user = await fetchAuthUser(userId);
+  const rows = await sbRequest('/rest/v1/rpc/verify_user_password', {
+    method: 'POST',
+    body: JSON.stringify({ p_email: email, p_password: password }),
+  });
+
+  const user = rows?.[0] ?? null;
   if (!user || user.approval_status !== 'approved') {
-    return json(res, 403, { error: 'User is not approved for system access' });
+    return json(res, 403, { error: 'Invalid credentials or account pending approval' });
   }
 
   const sessionId = crypto.randomUUID();
@@ -319,6 +336,59 @@ async function login(res, { bootstrapToken, userId }) {
   }, {
     'Set-Cookie': buildSessionCookie(sessionId),
   });
+}
+
+async function registerUser(res, { fullName, email, password, phone }) {
+  if (!fullName || !email || !password) {
+    return json(res, 400, { error: 'fullName, email, and password are required' });
+  }
+
+  try {
+    await sbRequest('/rest/v1/rpc/register_user', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_full_name: fullName,
+        p_email: email,
+        p_password: password,
+        p_phone: phone ?? null,
+      }),
+    });
+  } catch {
+    return json(res, 409, { error: 'Registration failed. Email may already exist.' });
+  }
+
+  return json(res, 201, { message: 'Registration successful. Pending admin approval.' });
+}
+
+async function updateUser(res, targetUserId, { role, approval_status }) {
+  const updates = {};
+
+  if (role !== undefined) {
+    if (!VALID_USER_ROLES.has(role)) {
+      return json(res, 400, { error: 'Invalid role value' });
+    }
+    updates.role = role;
+  }
+
+  if (approval_status !== undefined) {
+    if (!VALID_APPROVAL_STATUSES.has(approval_status)) {
+      return json(res, 400, { error: 'Invalid approval_status value' });
+    }
+    updates.approval_status = approval_status;
+  }
+
+  if (!Object.keys(updates).length) {
+    return json(res, 400, { error: 'At least one update field is required' });
+  }
+
+  await sbRequest(`/rest/v1/users?id=eq.${targetUserId}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify(updates),
+  });
+
+  await deleteSessionsByUserId(targetUserId);
+  return json(res, 200, { ok: true });
 }
 
 async function assignRide(res, rideId, { driverId, actorId, expectedRevision, expectedUpdatedAt }) {
