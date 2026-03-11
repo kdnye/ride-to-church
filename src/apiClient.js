@@ -5,6 +5,25 @@ function sessionSignature() {
   return window.localStorage.getItem(SESSION_SIGNATURE_KEY);
 }
 
+
+function normalizeRide(ride) {
+  if (!ride) return ride;
+  return {
+    ...ride,
+    estimatedArrival: ride.estimatedArrival ?? null,
+    routePolyline: ride.routePolyline ?? null,
+  };
+}
+
+function normalizeQueueItem(item) {
+  if (!item) return item;
+  return {
+    ...item,
+    estimatedArrival: item.estimatedArrival ?? null,
+    routePolyline: item.routePolyline ?? null,
+  };
+}
+
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
@@ -47,42 +66,64 @@ export const apiClient = {
   },
   async getRides() {
     const { rides } = await request('/rides');
-    return rides;
+    return rides.map(normalizeRide);
   },
   async createRide(input) {
     const { ride } = await request('/rides', {
       method: 'POST',
       body: JSON.stringify(input),
     });
-    return ride;
+    return normalizeRide(ride);
   },
   async autoAssign(input) {
-    return request('/rides/auto-assign', {
+    const response = await request('/rides/auto-assign', {
       method: 'POST',
       body: JSON.stringify(input),
     });
+    return {
+      ...response,
+      rides: Array.isArray(response.rides) ? response.rides.map(normalizeRide) : response.rides,
+    };
   },
 
   async assignRide(rideId, input) {
-    return request(`/rides/${rideId}/assign`, {
+    const response = await request(`/rides/${rideId}/assign`, {
       method: 'POST',
       body: JSON.stringify(input),
     });
+    return {
+      ...response,
+      ride: normalizeRide(response.ride),
+      rides: Array.isArray(response.rides) ? response.rides.map(normalizeRide) : response.rides,
+      latestRide: normalizeRide(response.latestRide),
+    };
   },
   async cancelRide(rideId, input) {
-    return request(`/rides/${rideId}/cancel`, {
+    const response = await request(`/rides/${rideId}/cancel`, {
       method: 'POST',
       body: JSON.stringify(input),
     });
+    return {
+      ...response,
+      ride: normalizeRide(response.ride),
+      rides: Array.isArray(response.rides) ? response.rides.map(normalizeRide) : response.rides,
+      latestRide: normalizeRide(response.latestRide),
+    };
   },
   async reorderDriverQueue(driverId, input) {
-    return request(`/drivers/${driverId}/queue/reorder`, {
+    const response = await request(`/drivers/${driverId}/queue/reorder`, {
       method: 'POST',
       body: JSON.stringify(input),
     });
+    return {
+      ...response,
+      rides: Array.isArray(response.rides) ? response.rides.map(normalizeRide) : response.rides,
+      queue: Array.isArray(response.queue) ? response.queue.map(normalizeQueueItem) : response.queue,
+      latestRide: normalizeRide(response.latestRide),
+    };
   },
   async getDriverQueue(driverId) {
     const { queue } = await request(`/drivers/${driverId}/queue`);
-    return queue;
+    return queue.map(normalizeQueueItem);
   },
 };
