@@ -42,5 +42,6 @@ CREATE TABLE IF NOT EXISTS ride_assignments (
   driver_id UUID NOT NULL REFERENCES users(id),
   queue_position INTEGER NOT NULL CHECK (queue_position > 0),
   assigned_by UUID REFERENCES users(id),
+  travel_time_seconds INTEGER,
   assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
