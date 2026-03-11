@@ -15,12 +15,37 @@
 
     <main>
       <section class="card page-view" id="view-profile">
-        <h2>Session User</h2>
-        <label>
-          Acting as
-          <select id="actor-select"></select>
-        </label>
-        <p id="actor-status" class="muted"></p>
+        <h2>My Profile</h2>
+        <p id="profile-info"></p>
+        <button id="logout-btn" style="background: #d32f2f; width: auto">Log Out</button>
+      </section>
+
+      <section class="card page-view" id="view-login">
+        <h2>System Login</h2>
+        <form id="login-form">
+          <label>Email <input type="email" id="login-email" required /></label>
+          <label>Password <input type="password" id="login-password" required /></label>
+          <button type="submit">Sign In</button>
+        </form>
+        <p class="muted" style="margin-top: 1rem">
+          Need an account? <a href="#/register">Register here</a>.
+        </p>
+        <p id="login-error" style="color: #d32f2f"></p>
+      </section>
+
+      <section class="card page-view" id="view-register">
+        <h2>Create Account</h2>
+        <form id="register-form">
+          <label>Full Name <input type="text" id="reg-name" required /></label>
+          <label>Email <input type="email" id="reg-email" required /></label>
+          <label>Phone <input type="tel" id="reg-phone" /></label>
+          <label>Password <input type="password" id="reg-password" required minlength="8" /></label>
+          <button type="submit">Register</button>
+        </form>
+        <p class="muted" style="margin-top: 1rem">
+          Already have an account? <a href="#/login">Sign in</a>.
+        </p>
+        <p id="reg-status"></p>
       </section>
 
       <section class="card page-view" id="view-request">

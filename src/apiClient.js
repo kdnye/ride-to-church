@@ -37,6 +37,11 @@ async function request(path, options = {}) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401) {
+      window.localStorage.removeItem('rtc-user');
+      window.localStorage.removeItem(SESSION_SIGNATURE_KEY);
+      window.location.hash = '#/login';
+    }
     const error = new Error(payload.error ?? `Request failed: ${response.status}`);
     error.status = response.status;
     error.details = payload;

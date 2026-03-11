@@ -19,10 +19,9 @@ const defaultState = {
 const state = {
   ...defaultState,
   settings: loadSettings(),
+  currentUser: JSON.parse(localStorage.getItem('rtc-user')) || null,
 };
 
-const actorSelect = document.querySelector('#actor-select');
-const actorStatus = document.querySelector('#actor-status');
 const memberSelect = document.querySelector('#member-select');
 const driverSelect = document.querySelector('#driver-select');
 const requestedRides = document.querySelector('#requested-rides');
@@ -38,6 +37,7 @@ const broadcastDraft = document.querySelector('#broadcast-draft');
 const broadcastStatus = document.querySelector('#broadcast-status');
 const auditLogEl = document.querySelector('#audit-log');
 const mainNav = document.querySelector('#main-nav');
+const profileInfo = document.querySelector('#profile-info');
 
 const ROLE_LABELS = {
   member: 'Member',
@@ -58,6 +58,8 @@ const realtime = {
 };
 
 const routes = [
+  { path: '#/login', viewId: 'view-login', label: 'Login', public: true },
+  { path: '#/register', viewId: 'view-register', label: 'Register', public: true },
   { path: '#/profile', viewId: 'view-profile', label: 'Profile', auth: () => true },
   { path: '#/request', viewId: 'view-request', label: 'Request Ride', auth: canRequestRide },
   { path: '#/dispatch', viewId: 'view-dispatch', label: 'Dispatch Board', auth: canDispatch },
@@ -75,14 +77,15 @@ async function boot() {
   requestForm.addEventListener('submit', onCreateRideRequest);
   document.querySelector('#auto-assign-btn').addEventListener('click', onAutoAssign);
   driverSelect.addEventListener('change', renderDriverQueue);
-  actorSelect.addEventListener('change', onActorChange);
   document.querySelector('#save-settings-btn').addEventListener('click', onSaveSettings);
+  document.querySelector('#login-form').addEventListener('submit', onLogin);
+  document.querySelector('#register-form').addEventListener('submit', onRegister);
+  document.querySelector('#logout-btn').addEventListener('click', onLogout);
   document.querySelector('#send-broadcast-btn').addEventListener('click', onSendBroadcast);
   userManagementListEl.addEventListener('change', onUserManagementChange);
 
   try {
     await hydrateState();
-    renderActorSelect();
     refreshAll();
     await initRideRealtimeSubscription();
   } catch (error) {
@@ -169,9 +172,78 @@ function cleanupRealtimeSubscription() {
 }
 
 async function hydrateState() {
+  if (!state.currentUser) {
+    state.users = [];
+    state.rides = [];
+    return;
+  }
+
   const [users, rides] = await Promise.all([apiClient.getUsers(), apiClient.getRides()]);
   state.users = users;
   state.rides = rides;
+  const refreshedUser = users.find((u) => u.id === state.currentUser?.id);
+  if (refreshedUser) {
+    state.currentUser = refreshedUser;
+    localStorage.setItem('rtc-user', JSON.stringify(refreshedUser));
+  }
+}
+
+async function onLogin(event) {
+  event.preventDefault();
+  const email = document.querySelector('#login-email').value.trim();
+  const password = document.querySelector('#login-password').value;
+  const errorEl = document.querySelector('#login-error');
+  errorEl.textContent = '';
+
+  try {
+    const res = await apiClient.login({ email, password });
+    state.currentUser = res.user;
+    localStorage.setItem('rtc-user', JSON.stringify(res.user));
+    await hydrateState();
+    refreshAll();
+    window.location.hash = '#/profile';
+  } catch (error) {
+    errorEl.textContent = error.details?.error || 'Login failed. Check credentials.';
+  }
+}
+
+async function onRegister(event) {
+  event.preventDefault();
+  const payload = {
+    fullName: document.querySelector('#reg-name').value.trim(),
+    email: document.querySelector('#reg-email').value.trim(),
+    phone: document.querySelector('#reg-phone').value.trim(),
+    password: document.querySelector('#reg-password').value,
+  };
+
+  const statusEl = document.querySelector('#reg-status');
+  statusEl.style.color = 'inherit';
+  statusEl.textContent = 'Registering...';
+
+  try {
+    await apiClient.register(payload);
+    statusEl.style.color = '#2e7d32';
+    statusEl.textContent = 'Success! Please log in (your account requires admin approval).';
+    event.target.reset();
+  } catch (error) {
+    statusEl.style.color = '#d32f2f';
+    statusEl.textContent = error.details?.error || 'Registration failed.';
+  }
+}
+
+async function onLogout() {
+  try {
+    await apiClient.logout();
+  } catch {
+    // Ignore logout network errors.
+  }
+
+  state.currentUser = null;
+  state.users = [];
+  state.rides = [];
+  localStorage.removeItem('rtc-user');
+  window.location.hash = '#/login';
+  refreshAll();
 }
 
 async function onCreateRideRequest(event) {
@@ -299,7 +371,7 @@ function onSendBroadcast() {
 }
 
 function refreshAll() {
-  renderActorStatus();
+  renderProfile();
   renderSelects();
   renderBoard();
   renderDriverQueue();
@@ -310,60 +382,64 @@ function refreshAll() {
   navigate();
 }
 
-function onActorChange() {
-  renderNav();
-  ensureAccessibleHash();
-  refreshAll();
-}
-
-function ensureAccessibleHash() {
-  const actor = currentActor();
-  const hash = window.location.hash;
-  const route = routes.find((item) => item.path === hash);
-  if (!route || (actor && !route.auth(actor))) {
-    window.location.hash = '#/profile';
-  }
-}
-
 function navigate() {
   const hash = window.location.hash || '#/profile';
   const actor = currentActor();
   const route = routes.find((item) => item.path === hash);
 
-  if (!route || (actor && !route.auth(actor))) {
+  if (!actor && (!route || !route.public)) {
+    if (window.location.hash !== '#/login') {
+      window.location.hash = '#/login';
+      return;
+    }
+  }
+
+  if (actor && route && !route.public && !route.auth(actor)) {
     if (window.location.hash !== '#/profile') {
       window.location.hash = '#/profile';
       return;
     }
   }
 
-  const activeRoute = route && (!actor || route.auth(actor)) ? route : routes[0];
+  if (actor && route && route.public) {
+    if (window.location.hash !== '#/profile') {
+      window.location.hash = '#/profile';
+      return;
+    }
+  }
+
+  let activeRoute = route;
+  if (!activeRoute) {
+    activeRoute = actor ? routes.find((item) => item.path === '#/profile') : routes.find((item) => item.path === '#/login');
+  }
+
   document.querySelectorAll('.page-view').forEach((el) => el.classList.remove('active'));
-  const activeView = document.getElementById(activeRoute.viewId);
+  const activeView = document.getElementById(activeRoute?.viewId ?? 'view-login');
   if (activeView) activeView.classList.add('active');
 
   document.querySelectorAll('nav#main-nav a').forEach((link) => {
-    link.classList.toggle('active', link.getAttribute('href') === activeRoute.path);
+    link.classList.toggle('active', link.getAttribute('href') === hash);
   });
 }
 
 function renderNav() {
   const actor = currentActor();
+  if (!actor) {
+    mainNav.innerHTML = '';
+    return;
+  }
+
   mainNav.innerHTML = routes
-    .filter((route) => !actor || route.auth(actor))
+    .filter((route) => !route.public && route.auth(actor))
     .map((route) => `<a href="${route.path}">${route.label}</a>`)
     .join('');
 }
 
-function renderActorSelect() {
-  actorSelect.innerHTML = state.users
-    .map((u) => `<option value="${u.id}">${u.fullName} (${roleLabel(u.role)})</option>`)
-    .join('');
-}
-
-function renderActorStatus() {
+function renderProfile() {
   const actor = currentActor();
-  actorStatus.textContent = actor ? `${actor.fullName}: ${roleLabel(actor.role)} / ${actor.approval_status}` : 'No users available';
+  profileInfo.textContent = actor
+    ? `${actor.fullName} (${actor.email || 'No email'}) — ${roleLabel(actor.role)} / ${actor.approval_status}`
+    : 'Not signed in.';
 }
 
 function renderSelects() {
@@ -373,6 +449,13 @@ function renderSelects() {
 
   memberSelect.innerHTML = approvedMembers.map((u) => `<option value="${u.id}">${u.fullName}</option>`).join('');
   driverSelect.innerHTML = approvedDrivers.map((u) => `<option value="${u.id}">${u.fullName}</option>`).join('');
+
+  if (actor && canRequestRide(actor) && approvedMembers.some((u) => u.id === actor.id)) {
+    memberSelect.value = actor.id;
+  }
+  if (actor && canDrive(actor) && approvedDrivers.some((u) => u.id === actor.id)) {
+    driverSelect.value = actor.id;
+  }
 
   requestForm.querySelector('button[type="submit"]').disabled = !actor || !canRequestRide(actor);
   autoAssignBtn.disabled = !actor || !canDispatch(actor);
@@ -497,7 +580,7 @@ function writeAudit({ type, actorId, before, after, metadata = {} }) {
 }
 
 function currentActor() {
-  return state.users.find((u) => u.id === actorSelect.value) ?? state.users[0] ?? null;
+  return state.currentUser;
 }
 
 function canRequestRide(user) {
