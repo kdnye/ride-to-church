@@ -30,6 +30,7 @@ const SESSION_EXTEND_THRESHOLD_MS = Number(process.env.SESSION_EXTEND_THRESHOLD_
 const SESSION_CLEANUP_INTERVAL_MS = Number(process.env.SESSION_CLEANUP_INTERVAL_MS || 1000 * 60 * 15);
 const BOOTSTRAP_AUTH_TOKEN = process.env.BOOTSTRAP_AUTH_TOKEN;
 const TRUST_PROXY = (process.env.TRUST_PROXY ?? 'true') === 'true';
+const ALLOW_DEV_AUTH_BYPASS = (process.env.ALLOW_DEV_AUTH_BYPASS ?? 'false') === 'true';
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY ?? '';
 const ENABLE_ROUTE_MATRIX = (process.env.ENABLE_ROUTE_MATRIX ?? 'true') === 'true';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -254,7 +255,7 @@ function requireRole(res, session, allowedRoles) {
 
 
 async function resolveSession(req, res) {
-  if (NODE_ENV !== 'production') {
+  if (ALLOW_DEV_AUTH_BYPASS && NODE_ENV === 'development') {
     return { userId: 'dev-admin', role: 'super_admin', approvalStatus: 'approved' };
   }
   return requireSession(req, res);
