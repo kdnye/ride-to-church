@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ride to Church</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Ride to Church</h1>
+      <p>Dispatcher + Driver workflow with proximity-based auto-assignment.</p>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>Member Request</h2>
+        <form id="request-form">
+          <label>
+            Member
+            <select id="member-select" required></select>
+          </label>
+          <label>
+            Pickup Date
+            <input id="pickup-date" type="date" required />
+          </label>
+          <label>
+            Pickup Notes
+            <input id="pickup-notes" type="text" maxlength="140" placeholder="Gate code, apartment number, etc." />
+          </label>
+          <button type="submit">Create Ride Request</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Dispatcher Board</h2>
+        <div class="actions">
+          <button id="auto-assign-btn">Run Auto-Assign</button>
+          <span id="assign-result" role="status"></span>
+        </div>
+        <div class="grid">
+          <div>
+            <h3>Requested Rides</h3>
+            <ul id="requested-rides"></ul>
+          </div>
+          <div>
+            <h3>Assigned Rides</h3>
+            <ul id="assigned-rides"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Driver Mobile View</h2>
+        <label>
+          Driver
+          <select id="driver-select"></select>
+        </label>
+        <ol id="driver-queue"></ol>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

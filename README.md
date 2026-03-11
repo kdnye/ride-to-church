@@ -784,3 +784,32 @@ To justify the project and track its health, the **Super Admin** should review t
 **This concludes the full documentation suite for your Church Ride-Share App.**
 
 
+
+---
+
+## MVP Implementation in This Repository
+
+This repository now includes a lightweight browser app that demonstrates the core workflow described above:
+
+- Member ride request creation.
+- Dispatcher board with requested vs assigned rides.
+- Proximity-based auto-assignment using the Haversine formula.
+- Driver queue view with Google Maps deep links.
+
+### Run the app
+
+```bash
+npm start
+```
+
+Then open `http://localhost:4173`.
+
+### Run tests
+
+```bash
+npm test
+```
+
+### Email integration policy
+
+All production email notifications should be handled through **Postmark**. The current MVP focuses on dispatch logic and UI; wire any reminder/notification email workflows through Postmark when backend messaging is added.

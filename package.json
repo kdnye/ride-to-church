@@ -1,0 +1,10 @@
+{
+  "name": "ride-to-church",
+  "version": "0.1.0",
+  "description": "Ride-to-Church dispatch MVP",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 4173",
+    "test": "node --test"
+  }
+}
