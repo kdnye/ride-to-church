@@ -9,8 +9,8 @@ test('haversineDistanceKm returns 0 for identical points', () => {
 
 test('autoAssignRides assigns requested rides to approved drivers', () => {
   const users = [
-    { id: 'm1', role: 'member', status: 'approved', coordinates: { lat: 35, lon: -90 } },
-    { id: 'd1', role: 'volunteer_driver', status: 'approved', coordinates: { lat: 35.02, lon: -90 } },
+    { id: 'm1', role: 'member', approval_status: 'approved', coordinates: { lat: 35, lon: -90 } },
+    { id: 'd1', role: 'volunteer_driver', approval_status: 'approved', coordinates: { lat: 35.02, lon: -90 } },
   ];
   const rides = [{ id: 'r1', memberId: 'm1', status: 'requested' }];
 
@@ -20,6 +20,24 @@ test('autoAssignRides assigns requested rides to approved drivers', () => {
   assert.equal(rides[0].status, 'assigned');
   assert.equal(rides[0].driverId, 'd1');
   assert.equal(rides[0].queueOrder, 1);
+});
+
+test('autoAssignRides respects maxRidesPerDriver', () => {
+  const users = [
+    { id: 'm1', role: 'member', approval_status: 'approved', coordinates: { lat: 35, lon: -90 } },
+    { id: 'm2', role: 'member', approval_status: 'approved', coordinates: { lat: 35.01, lon: -90 } },
+    { id: 'd1', role: 'volunteer_driver', approval_status: 'approved', coordinates: { lat: 35.02, lon: -90 } },
+  ];
+  const rides = [
+    { id: 'r1', memberId: 'm1', status: 'requested' },
+    { id: 'r2', memberId: 'm2', status: 'requested' },
+  ];
+
+  const assignments = autoAssignRides({ rides, users, maxRidesPerDriver: 1 });
+
+  assert.equal(assignments.length, 1);
+  assert.equal(rides[0].status, 'assigned');
+  assert.equal(rides[1].status, 'requested');
 });
 
 test('queueForDriver returns only assigned rides sorted by queue order', () => {

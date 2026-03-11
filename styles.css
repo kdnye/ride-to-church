@@ -43,6 +43,7 @@ label {
 
 select,
 input,
+textarea,
 button {
   width: 100%;
   margin-top: 0.2rem;
@@ -63,15 +64,40 @@ button:hover {
   background: #0a3366;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 ul,
-ol { padding-left: 1.2rem; }
-li { margin: 0.45rem 0; }
-.actions { display:flex; gap:1rem; align-items:center; }
-.muted { color:#5f6e85; font-size:0.9rem; }
+ol {
+  padding-left: 1.2rem;
+}
+
+li {
+  margin: 0.45rem 0;
+}
+
+.actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.muted {
+  color: #5f6e85;
+  font-size: 0.9rem;
+}
+
 .badge {
   border-radius: 99px;
   font-size: 0.75rem;
   padding: 0.15rem 0.55rem;
   color: #fff;
   background: #2e7d32;
+}
+
+#pending-users button {
+  margin-left: 0.5rem;
+  width: auto;
 }
