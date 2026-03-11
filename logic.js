@@ -8,8 +8,8 @@ export function haversineDistanceKm(a, b) {
   const lat2 = toRad(b.lat);
 
   const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
 
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
 }
@@ -28,9 +28,9 @@ export function nearestDrivers(member, drivers, queueLoads) {
     .slice(0, 3);
 }
 
-export function autoAssignRides({ rides, users }) {
+export function autoAssignRides({ rides, users, maxRidesPerDriver = Infinity }) {
   const drivers = users.filter(
-    (u) => u.role === 'volunteer_driver' && u.status === 'approved',
+    (u) => u.role === 'volunteer_driver' && u.approval_status === 'approved',
   );
 
   const queueLoads = Object.fromEntries(drivers.map((d) => [d.id, 0]));
@@ -46,7 +46,8 @@ export function autoAssignRides({ rides, users }) {
     const member = users.find((u) => u.id === ride.memberId);
     if (!member) continue;
 
-    const candidates = nearestDrivers(member, drivers, queueLoads);
+    const candidates = nearestDrivers(member, drivers, queueLoads)
+      .filter((driver) => queueLoads[driver.id] < maxRidesPerDriver);
     if (!candidates.length) continue;
 
     const selected = candidates[0];

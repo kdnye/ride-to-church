@@ -9,10 +9,19 @@
   <body>
     <header>
       <h1>Ride to Church</h1>
-      <p>Dispatcher + Driver workflow with proximity-based auto-assignment.</p>
+      <p>Dispatcher + Driver workflow with approvals, admin controls, and audit logging.</p>
     </header>
 
     <main>
+      <section class="card">
+        <h2>Session User</h2>
+        <label>
+          Acting as
+          <select id="actor-select"></select>
+        </label>
+        <p id="actor-status" class="muted"></p>
+      </section>
+
       <section class="card">
         <h2>Member Request</h2>
         <form id="request-form">
@@ -57,6 +66,42 @@
           <select id="driver-select"></select>
         </label>
         <ol id="driver-queue"></ol>
+      </section>
+
+      <section class="card" id="admin-users" hidden>
+        <h2>Admin /users</h2>
+        <p class="muted">Pending approvals</p>
+        <ul id="pending-users"></ul>
+      </section>
+      <section class="card" id="admin-hint">
+        <h2>Admin /users</h2>
+        <p class="muted">Only approved people managers and super admins can view this module.</p>
+      </section>
+
+      <section class="card" id="super-admin-settings" hidden>
+        <h2>Super Admin Settings</h2>
+        <label>
+          Max rides per driver
+          <input id="max-rides-per-driver" type="number" min="1" />
+        </label>
+        <label>
+          Emergency broadcast draft
+          <textarea id="broadcast-draft" rows="3" placeholder="Write emergency update for members and volunteers"></textarea>
+        </label>
+        <div class="actions">
+          <button id="save-settings-btn" type="button">Save Settings</button>
+          <button id="send-broadcast-btn" type="button">Send Broadcast</button>
+        </div>
+        <p id="broadcast-status" class="muted"></p>
+      </section>
+      <section class="card" id="super-admin-hint">
+        <h2>Super Admin Settings</h2>
+        <p class="muted">Only approved super admins can update config and trigger broadcasts.</p>
+      </section>
+
+      <section class="card">
+        <h2>Audit Log Viewer</h2>
+        <ul id="audit-log"></ul>
       </section>
     </main>
 
