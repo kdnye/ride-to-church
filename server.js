@@ -127,7 +127,7 @@ async function handleApi(req, res) {
   if (!session) return;
 
   if (req.method === 'GET' && url.pathname === '/api/users') {
-    if (!requireRole(res, session, ['volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
+    if (!requireRole(res, session, ['member', 'volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     return json(res, 200, { users: await fetchUsers() });
   }
 
