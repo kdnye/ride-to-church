@@ -257,7 +257,7 @@ async function renderDriverQueue() {
       .map((item) => {
         const { lat, lon } = item.member.coordinates;
         const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
-        return `<li><strong>${item.member.fullName}</strong> — ${item.pickupNotes || 'No notes'}<br/><a href="${navUrl}" target="_blank" rel="noreferrer">Start navigation</a></li>`;
+        return `<li><span class="badge">Stop ${item.queueOrder}</span> <strong>${item.member.fullName}</strong> — ${item.pickupNotes || 'No notes'}<br/><a href="${navUrl}" target="_blank" rel="noreferrer">Start navigation</a></li>`;
       })
       .join('') || '<li class="muted">No active stops for this driver.</li>';
   } catch (error) {
