@@ -35,6 +35,7 @@ Required values:
 
 - `SUPABASE_URL=https://nwojorirnvquctowiolq.supabase.co`
 - `SUPABASE_SERVICE_ROLE_KEY=<service_role key>`
+- `SUPABASE_ANON_KEY=<anon/public key used by browser realtime subscription>`
 - `SESSION_SECRET=<secure random value>`
 - `BOOTSTRAP_AUTH_TOKEN=<secure random value>`
 - `POSTMARK_API_TOKEN=<postmark server token>`
@@ -77,6 +78,7 @@ Required in production:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_ANON_KEY` (public browser key for Supabase Realtime subscriptions)
 - `SESSION_SECRET` (HMAC signing key for session integrity)
 - `BOOTSTRAP_AUTH_TOKEN` (bootstrap login secret used only server-side)
 - `NODE_ENV=production`
