@@ -14,12 +14,6 @@
     </header>
 
     <main>
-      <section class="card page-view" id="view-profile">
-        <h2>My Profile</h2>
-        <p id="profile-info"></p>
-        <button id="logout-btn" style="background: #d32f2f; width: auto">Log Out</button>
-      </section>
-
       <section class="card page-view" id="view-login">
         <h2>System Login</h2>
         <form id="login-form">
@@ -27,10 +21,10 @@
           <label>Password <input type="password" id="login-password" required /></label>
           <button type="submit">Sign In</button>
         </form>
-        <p class="muted" style="margin-top: 1rem">
+        <p class="muted" style="margin-top: 1rem;">
           Need an account? <a href="#/register">Register here</a>.
         </p>
-        <p id="login-error" style="color: #d32f2f"></p>
+        <p id="login-error" style="color: #d32f2f;"></p>
       </section>
 
       <section class="card page-view" id="view-register">
@@ -42,27 +36,24 @@
           <label>Password <input type="password" id="reg-password" required minlength="8" /></label>
           <button type="submit">Register</button>
         </form>
-        <p class="muted" style="margin-top: 1rem">
+        <p class="muted" style="margin-top: 1rem;">
           Already have an account? <a href="#/login">Sign in</a>.
         </p>
         <p id="reg-status"></p>
       </section>
 
+      <section class="card page-view" id="view-profile">
+        <h2>My Profile</h2>
+        <p id="profile-info" style="font-size: 1.1rem; margin-bottom: 1rem;"></p>
+        <button id="logout-btn" style="background: #d32f2f; width: auto;">Log Out</button>
+      </section>
+
       <section class="card page-view" id="view-request">
         <h2>Member Request</h2>
         <form id="request-form">
-          <label>
-            Member
-            <select id="member-select" required></select>
-          </label>
-          <label>
-            Pickup Date
-            <input id="pickup-date" type="date" required />
-          </label>
-          <label>
-            Pickup Notes
-            <input id="pickup-notes" type="text" maxlength="140" placeholder="Gate code, apartment number, etc." />
-          </label>
+          <label>Member <select id="member-select" required></select></label>
+          <label>Pickup Date <input id="pickup-date" type="date" required /></label>
+          <label>Pickup Notes <input id="pickup-notes" type="text" maxlength="140" placeholder="Gate code, apartment number, etc." /></label>
           <button type="submit">Create Ride Request</button>
         </form>
       </section>
@@ -87,33 +78,22 @@
 
       <section class="card page-view" id="view-driver">
         <h2>Driver Mobile View</h2>
-        <label>
-          Driver
-          <select id="driver-select"></select>
-        </label>
+        <label>Driver <select id="driver-select"></select></label>
         <ol id="driver-queue"></ol>
       </section>
 
       <section class="card page-view" id="view-admin">
-        <h2>Admin / Users</h2>
-        <p class="muted" id="admin-hint">Only approved people managers and super admins can view this module.</p>
+        <h2>User Management</h2>
         <div id="user-management-list"></div>
-
-        <h2 style="margin-top: 2rem">Audit Log Viewer</h2>
+        
+        <h2 style="margin-top: 2rem;">Audit Log Viewer</h2>
         <ul id="audit-log"></ul>
       </section>
 
       <section class="card page-view" id="view-settings">
         <h2>Super Admin Settings</h2>
-        <p class="muted" id="super-admin-hint">Only approved super admins can update config and trigger broadcasts.</p>
-        <label>
-          Max rides per driver
-          <input id="max-rides-per-driver" type="number" min="1" />
-        </label>
-        <label>
-          Emergency broadcast draft
-          <textarea id="broadcast-draft" rows="3" placeholder="Write emergency update for members and volunteers"></textarea>
-        </label>
+        <label>Max rides per driver <input id="max-rides-per-driver" type="number" min="1" /></label>
+        <label>Emergency broadcast draft <textarea id="broadcast-draft" rows="3"></textarea></label>
         <div class="actions">
           <button id="save-settings-btn" type="button">Save Settings</button>
           <button id="send-broadcast-btn" type="button">Send Broadcast</button>
