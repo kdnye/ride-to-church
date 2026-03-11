@@ -4,7 +4,8 @@
   "description": "Ride-to-Church dispatch MVP",
   "type": "module",
   "scripts": {
-    "start": "python3 -m http.server 4173",
-    "test": "node --test"
+    "start": "node server.js",
+    "test": "node --test",
+    "start:static": "python3 -m http.server 4173"
   }
 }
