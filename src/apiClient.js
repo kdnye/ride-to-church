@@ -45,6 +45,12 @@ export const apiClient = {
       body: JSON.stringify(input),
     });
   },
+  async cancelRide(rideId, input) {
+    return request(`/rides/${rideId}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
   async reorderDriverQueue(driverId, input) {
     return request(`/drivers/${driverId}/queue/reorder`, {
       method: 'POST',

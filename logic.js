@@ -1,4 +1,6 @@
 const EARTH_RADIUS_KM = 6371;
+const DEFAULT_SPEED_KMH = 35;
+const DEFAULT_STOP_SERVICE_MINUTES = 4;
 
 export function haversineDistanceKm(a, b) {
   const toRad = (deg) => (deg * Math.PI) / 180;
@@ -227,4 +229,119 @@ export function reorderQueueAtomicallyWithVersionCheck({
     ride: { ...ride },
     queue: queue.map((r) => ({ id: r.id, queueOrder: r.queueOrder })),
   };
+}
+
+function toEpochMinutes(value) {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return null;
+  return Math.floor(timestamp / 60000);
+}
+
+export function getRideServiceMinutes(ride) {
+  const wheelchairBuffer = Number(ride.wheelchairPickupBufferMinutes ?? 0);
+  return DEFAULT_STOP_SERVICE_MINUTES + Math.max(0, wheelchairBuffer);
+}
+
+function routeCost(queue, { startCoordinates, speedKmh = DEFAULT_SPEED_KMH } = {}) {
+  if (!queue.length) return 0;
+  const speedKmPerMin = speedKmh / 60;
+  let total = 0;
+  let current = startCoordinates ?? queue[0].member.coordinates;
+  let timeCursor = toEpochMinutes(queue[0].scheduledFor) ?? 0;
+
+  for (const ride of queue) {
+    const memberCoordinates = ride.member.coordinates;
+    const legDistanceKm = current ? haversineDistanceKm(current, memberCoordinates) : 0;
+    const legMinutes = legDistanceKm / speedKmPerMin;
+    total += legDistanceKm;
+    timeCursor += legMinutes;
+
+    const windowStart = toEpochMinutes(ride.pickupWindowStart);
+    const windowEnd = toEpochMinutes(ride.pickupWindowEnd);
+    if (windowStart !== null && timeCursor < windowStart) {
+      total += (windowStart - timeCursor) * 0.1;
+      timeCursor = windowStart;
+    }
+    if (windowEnd !== null && timeCursor > windowEnd) {
+      total += (timeCursor - windowEnd) * 2;
+    }
+
+    const serviceMinutes = getRideServiceMinutes(ride);
+    total += serviceMinutes * 0.05;
+    timeCursor += serviceMinutes;
+    current = memberCoordinates;
+  }
+
+  return total;
+}
+
+function nearestNeighborSeed(stops, startCoordinates) {
+  const pending = [...stops];
+  const ordered = [];
+  let current = startCoordinates;
+
+  while (pending.length) {
+    let bestIndex = 0;
+    let bestDistance = Infinity;
+
+    pending.forEach((stop, index) => {
+      const distance = current
+        ? haversineDistanceKm(current, stop.member.coordinates)
+        : 0;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+
+    const [selected] = pending.splice(bestIndex, 1);
+    ordered.push(selected);
+    current = selected.member.coordinates;
+  }
+
+  return ordered;
+}
+
+function twoOpt(queue, options) {
+  if (queue.length < 4) return queue;
+  let best = queue;
+  let bestCost = routeCost(queue, options);
+  let improved = true;
+
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < best.length - 2; i += 1) {
+      for (let k = i + 1; k < best.length - 1; k += 1) {
+        const candidate = [
+          ...best.slice(0, i),
+          ...best.slice(i, k + 1).reverse(),
+          ...best.slice(k + 1),
+        ];
+        const candidateCost = routeCost(candidate, options);
+        if (candidateCost + 1e-9 < bestCost) {
+          best = candidate;
+          bestCost = candidateCost;
+          improved = true;
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+export function optimizeDriverQueue({ rides, driverCoordinates, speedKmh = DEFAULT_SPEED_KMH }) {
+  const assigned = rides.filter((ride) => ride.status === 'assigned' && ride.member?.coordinates);
+  if (assigned.length <= 1) {
+    return assigned.map((ride, index) => ({ ...ride, queueOrder: index + 1 }));
+  }
+
+  const seeded = nearestNeighborSeed(assigned, driverCoordinates);
+  const optimized = twoOpt(seeded, {
+    startCoordinates: driverCoordinates,
+    speedKmh,
+  });
+
+  return optimized.map((ride, index) => ({ ...ride, queueOrder: index + 1 }));
 }

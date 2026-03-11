@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { autoAssignRides } from './logic.js';
+import { autoAssignRides, optimizeDriverQueue } from './logic.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,6 +61,12 @@ async function handleApi(req, res) {
     return assignRide(res, assignMatch[1], body);
   }
 
+  const cancelMatch = url.pathname.match(/^\/api\/rides\/([^/]+)\/cancel$/);
+  if (req.method === 'POST' && cancelMatch) {
+    const body = await readJson(req);
+    return cancelRide(res, cancelMatch[1], body);
+  }
+
   const reorderMatch = url.pathname.match(/^\/api\/drivers\/([^/]+)\/queue\/reorder$/);
   if (req.method === 'POST' && reorderMatch) {
     const body = await readJson(req);
@@ -89,7 +95,7 @@ async function fetchUsers() {
 }
 
 async function fetchRides() {
-  const rows = await sbRequest('/rest/v1/rides?select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,ride_assignments(driver_id,queue_position)&order=scheduled_for.asc,created_at.asc');
+  const rows = await sbRequest('/rest/v1/rides?select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position)&order=scheduled_for.asc,created_at.asc');
   return rows.map((row) => ({
     id: row.id,
     memberId: row.member_id,
@@ -98,17 +104,28 @@ async function fetchRides() {
     status: row.status,
     updatedAt: row.updated_at,
     revision: row.revision,
+    wheelchairPickupBufferMinutes: row.wheelchair_pickup_buffer_minutes ?? 0,
+    pickupWindowStart: row.pickup_window_start ?? null,
+    pickupWindowEnd: row.pickup_window_end ?? null,
     driverId: row.ride_assignments?.driver_id ?? null,
     queueOrder: row.ride_assignments?.queue_position ?? null,
   }));
 }
 
-async function createRide({ memberId, scheduledFor, pickupNotes }) {
+async function createRide({ memberId, scheduledFor, pickupNotes, wheelchairPickupBufferMinutes, pickupWindowStart, pickupWindowEnd }) {
   if (!memberId || !scheduledFor) throw new Error('memberId and scheduledFor are required');
   const rows = await sbRequest('/rest/v1/rides', {
     method: 'POST',
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({ member_id: memberId, scheduled_for: scheduledFor, pickup_notes: pickupNotes ?? null, status: 'requested' }),
+    body: JSON.stringify({
+      member_id: memberId,
+      scheduled_for: scheduledFor,
+      pickup_notes: pickupNotes ?? null,
+      wheelchair_pickup_buffer_minutes: Math.max(0, Number(wheelchairPickupBufferMinutes) || 0),
+      pickup_window_start: pickupWindowStart ?? null,
+      pickup_window_end: pickupWindowEnd ?? null,
+      status: 'requested',
+    }),
   });
   const row = rows[0];
   return {
@@ -119,6 +136,9 @@ async function createRide({ memberId, scheduledFor, pickupNotes }) {
     status: row.status,
     updatedAt: row.updated_at,
     revision: row.revision,
+    wheelchairPickupBufferMinutes: row.wheelchair_pickup_buffer_minutes ?? 0,
+    pickupWindowStart: row.pickup_window_start ?? null,
+    pickupWindowEnd: row.pickup_window_end ?? null,
   };
 }
 
@@ -126,6 +146,8 @@ async function assignRide(res, rideId, { driverId, actorId, expectedRevision, ex
   if (!driverId || Number.isNaN(Number(expectedRevision))) {
     return json(res, 400, { error: 'driverId and expectedRevision are required' });
   }
+
+  const previousRide = await fetchRideById(rideId);
 
   const result = await sbRequest('/rest/v1/rpc/assign_ride_transactional', {
     method: 'POST',
@@ -147,6 +169,9 @@ async function assignRide(res, rideId, { driverId, actorId, expectedRevision, ex
       rides: await fetchRides(),
     });
   }
+
+  const latestRide = await fetchRideById(rideId);
+  await optimizeAndPersistDriverQueues([previousRide?.driverId, latestRide?.driverId]);
 
   return json(res, 200, { ride: await fetchRideById(rideId), rides: await fetchRides() });
 }
@@ -178,11 +203,12 @@ async function reorderDriverQueue(res, driverId, { rideId, newPosition, actorId,
     });
   }
 
+  await optimizeAndPersistDriverQueues([driverId]);
   return json(res, 200, { rides: await fetchRides(), queue: await fetchDriverQueue(driverId) });
 }
 
 async function fetchRideById(rideId) {
-  const rows = await sbRequest(`/rest/v1/rides?id=eq.${rideId}&select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,ride_assignments(driver_id,queue_position)&limit=1`);
+  const rows = await sbRequest(`/rest/v1/rides?id=eq.${rideId}&select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position)&limit=1`);
   const row = rows[0];
   if (!row) return null;
   return {
@@ -193,6 +219,9 @@ async function fetchRideById(rideId) {
     status: row.status,
     updatedAt: row.updated_at,
     revision: row.revision,
+    wheelchairPickupBufferMinutes: row.wheelchair_pickup_buffer_minutes ?? 0,
+    pickupWindowStart: row.pickup_window_start ?? null,
+    pickupWindowEnd: row.pickup_window_end ?? null,
     driverId: row.ride_assignments?.driver_id ?? null,
     queueOrder: row.ride_assignments?.queue_position ?? null,
   };
@@ -203,9 +232,11 @@ async function autoAssign(actorId, maxRidesPerDriver) {
   const rides = await fetchRides();
   const assignments = autoAssignRides({ rides, users, maxRidesPerDriver });
 
+  const touchedDriverIds = new Set();
   await Promise.all(rides
     .filter((r) => r.status === 'assigned' && r.driverId)
     .map(async (ride) => {
+      touchedDriverIds.add(ride.driverId);
       await sbRequest(`/rest/v1/rides?id=eq.${ride.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: 'assigned' }),
@@ -223,11 +254,12 @@ async function autoAssign(actorId, maxRidesPerDriver) {
       });
     }));
 
+  await optimizeAndPersistDriverQueues([...touchedDriverIds]);
   return { assignments, rides: await fetchRides() };
 }
 
 async function fetchDriverQueue(driverId) {
-  const rows = await sbRequest(`/rest/v1/ride_assignments?driver_id=eq.${driverId}&select=queue_position,ride:rides(id,member_id,scheduled_for,pickup_notes,status,member:users!rides_member_id_fkey(id,full_name,coordinates))&order=queue_position.asc`);
+  const rows = await sbRequest(`/rest/v1/ride_assignments?driver_id=eq.${driverId}&select=queue_position,driver:users!ride_assignments_driver_id_fkey(id,coordinates),ride:rides(id,member_id,scheduled_for,pickup_notes,status,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,member:users!rides_member_id_fkey(id,full_name,coordinates))&order=queue_position.asc`);
 
   return rows
     .filter((row) => row.ride?.status === 'assigned')
@@ -237,6 +269,9 @@ async function fetchDriverQueue(driverId) {
       scheduledFor: row.ride.scheduled_for,
       pickupNotes: row.ride.pickup_notes,
       status: row.ride.status,
+      wheelchairPickupBufferMinutes: row.ride.wheelchair_pickup_buffer_minutes ?? 0,
+      pickupWindowStart: row.ride.pickup_window_start ?? null,
+      pickupWindowEnd: row.ride.pickup_window_end ?? null,
       queueOrder: row.queue_position,
       member: {
         id: row.ride.member.id,
@@ -244,6 +279,63 @@ async function fetchDriverQueue(driverId) {
         coordinates: pointToCoordinates(row.ride.member.coordinates),
       },
     }));
+}
+
+async function cancelRide(res, rideId, { actorId, expectedRevision, expectedUpdatedAt }) {
+  if (Number.isNaN(Number(expectedRevision))) {
+    return json(res, 400, { error: 'expectedRevision is required' });
+  }
+
+  const current = await fetchRideById(rideId);
+  if (!current) return json(res, 404, { error: 'Ride not found' });
+  if (current.revision !== Number(expectedRevision)
+    || (expectedUpdatedAt && current.updatedAt !== expectedUpdatedAt)) {
+    return json(res, 409, {
+      error: 'Ride was updated by another dispatcher. Please refresh and retry.',
+      code: 'stale_ride_version',
+      latestRide: current,
+      rides: await fetchRides(),
+    });
+  }
+
+  await sbRequest(`/rest/v1/rides?id=eq.${rideId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'cancelled' }),
+  });
+  await sbRequest(`/rest/v1/ride_assignments?ride_id=eq.${rideId}`, { method: 'DELETE' });
+
+  await optimizeAndPersistDriverQueues([current.driverId]);
+  return json(res, 200, { ride: await fetchRideById(rideId), rides: await fetchRides(), actorId: actorId ?? null });
+}
+
+async function optimizeAndPersistDriverQueues(driverIds) {
+  const uniqueDriverIds = [...new Set((driverIds || []).filter(Boolean))];
+  await Promise.all(uniqueDriverIds.map(async (driverId) => {
+    const queue = await fetchDriverQueue(driverId);
+    if (!queue.length) return;
+    const driver = await fetchUserById(driverId);
+    const optimized = optimizeDriverQueue({
+      rides: queue,
+      driverCoordinates: driver?.coordinates ?? null,
+    });
+
+    await Promise.all(optimized.map((ride) => sbRequest('/rest/v1/ride_assignments', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify({
+        ride_id: ride.id,
+        driver_id: driverId,
+        queue_position: ride.queueOrder,
+      }),
+    })));
+  }));
+}
+
+async function fetchUserById(userId) {
+  const rows = await sbRequest(`/rest/v1/users?id=eq.${userId}&select=id,coordinates&limit=1`);
+  const row = rows[0];
+  if (!row) return null;
+  return { id: row.id, coordinates: pointToCoordinates(row.coordinates) };
 }
 
 function pointToCoordinates(value) {

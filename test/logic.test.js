@@ -5,6 +5,7 @@ import {
   autoAssignRides,
   autoAssignRidesWithEvents,
   haversineDistanceKm,
+  optimizeDriverQueue,
   queueForDriver,
   reorderQueueAtomicallyWithVersionCheck,
 } from '../logic.js';
@@ -158,4 +159,67 @@ test('atomic reorder updates all positions and rejects stale concurrent reorder'
 
   assert.equal(second.ok, false);
   assert.equal(second.code, 'stale_ride_version');
+});
+
+
+test('optimizeDriverQueue returns queue order for assigned rides only', () => {
+  const queue = optimizeDriverQueue({
+    driverCoordinates: { lat: 35, lon: -90 },
+    rides: [
+      {
+        id: 'r1',
+        status: 'assigned',
+        scheduledFor: '2026-01-01T09:00:00Z',
+        member: { coordinates: { lat: 35.01, lon: -90 } },
+      },
+      {
+        id: 'r2',
+        status: 'cancelled',
+        scheduledFor: '2026-01-01T09:10:00Z',
+        member: { coordinates: { lat: 36, lon: -90 } },
+      },
+      {
+        id: 'r3',
+        status: 'assigned',
+        scheduledFor: '2026-01-01T09:20:00Z',
+        member: { coordinates: { lat: 35.02, lon: -90 } },
+      },
+    ],
+  });
+
+  assert.deepEqual(queue.map((item) => item.id), ['r1', 'r3']);
+  assert.deepEqual(queue.map((item) => item.queueOrder), [1, 2]);
+});
+
+test('optimizeDriverQueue prefers stops that satisfy tight pickup windows', () => {
+  const queue = optimizeDriverQueue({
+    driverCoordinates: { lat: 35, lon: -90 },
+    rides: [
+      {
+        id: 'far-no-window',
+        status: 'assigned',
+        scheduledFor: '2026-01-01T09:00:00Z',
+        wheelchairPickupBufferMinutes: 0,
+        member: { coordinates: { lat: 35.2, lon: -90 } },
+      },
+      {
+        id: 'near-tight-window',
+        status: 'assigned',
+        scheduledFor: '2026-01-01T09:00:00Z',
+        pickupWindowEnd: '2026-01-01T09:10:00Z',
+        wheelchairPickupBufferMinutes: 15,
+        member: { coordinates: { lat: 35.01, lon: -90 } },
+      },
+      {
+        id: 'near-flex',
+        status: 'assigned',
+        scheduledFor: '2026-01-01T09:00:00Z',
+        pickupWindowStart: '2026-01-01T09:40:00Z',
+        wheelchairPickupBufferMinutes: 0,
+        member: { coordinates: { lat: 35.015, lon: -90 } },
+      },
+    ],
+  });
+
+  assert.equal(queue[0].id, 'near-tight-window');
 });
