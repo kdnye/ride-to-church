@@ -1,38 +1,11 @@
-import { autoAssignRides, nearestDrivers, queueForDriver } from './logic.js';
+import { autoAssignRides, nearestDrivers } from './logic.js';
+import { apiClient } from './src/apiClient.js';
 
-const STORAGE_KEY = 'rtc-state-v2';
+const SETTINGS_STORAGE_KEY = 'rtc-settings-v3';
 
 const defaultState = {
-  users: [
-    {
-      id: 'sa1',
-      fullName: 'Grace Admin',
-      role: 'super_admin',
-      approval_status: 'approved',
-      approved_by: 'system',
-      approved_at: new Date().toISOString(),
-      coordinates: { lat: 35.1495, lon: -90.049 },
-    },
-    {
-      id: 'pm1',
-      fullName: 'Helen Manager',
-      role: 'people_manager',
-      approval_status: 'approved',
-      approved_by: 'sa1',
-      approved_at: new Date().toISOString(),
-      coordinates: { lat: 35.133, lon: -90.02 },
-    },
-    { id: 'm1', fullName: 'Sarah Johnson', role: 'member', approval_status: 'approved', approved_by: 'pm1', approved_at: new Date().toISOString(), coordinates: { lat: 35.1495, lon: -90.049 } },
-    { id: 'm2', fullName: 'Marcus Reed', role: 'member', approval_status: 'pending', approved_by: null, approved_at: null, coordinates: { lat: 35.133, lon: -90.02 } },
-    { id: 'm3', fullName: 'Elena Brooks', role: 'member', approval_status: 'approved', approved_by: 'pm1', approved_at: new Date().toISOString(), coordinates: { lat: 35.182, lon: -90.08 } },
-    { id: 'd1', fullName: 'James Driver', role: 'volunteer_driver', approval_status: 'approved', approved_by: 'pm1', approved_at: new Date().toISOString(), coordinates: { lat: 35.12, lon: -90.04 } },
-    { id: 'd2', fullName: 'Tonya Driver', role: 'volunteer_driver', approval_status: 'pending', approved_by: null, approved_at: null, coordinates: { lat: 35.18, lon: -90.01 } },
-    { id: 'd3', fullName: 'Ben Driver', role: 'volunteer_driver', approval_status: 'approved', approved_by: 'pm1', approved_at: new Date().toISOString(), coordinates: { lat: 35.11, lon: -90.09 } },
-  ],
-  rides: [
-    { id: 'r1', memberId: 'm1', scheduledFor: nextSunday(), pickupNotes: 'Wheelchair friendly entrance', status: 'requested' },
-    { id: 'r2', memberId: 'm3', scheduledFor: nextSunday(), pickupNotes: 'Call on arrival', status: 'requested' },
-  ],
+  users: [],
+  rides: [],
   settings: {
     maxRidesPerDriver: 3,
     emergencyBroadcastDraft: '',
@@ -42,7 +15,10 @@ const defaultState = {
   auditLogs: [],
 };
 
-const state = loadState();
+const state = {
+  ...defaultState,
+  settings: loadSettings(),
+};
 
 const actorSelect = document.querySelector('#actor-select');
 const actorStatus = document.querySelector('#actor-status');
@@ -64,8 +40,7 @@ const auditLogEl = document.querySelector('#audit-log');
 
 boot();
 
-function boot() {
-  renderActorSelect();
+async function boot() {
   document.querySelector('#pickup-date').value = nextSunday();
   requestForm.addEventListener('submit', onCreateRideRequest);
   document.querySelector('#auto-assign-btn').addEventListener('click', onAutoAssign);
@@ -74,80 +49,91 @@ function boot() {
   document.querySelector('#save-settings-btn').addEventListener('click', onSaveSettings);
   document.querySelector('#send-broadcast-btn').addEventListener('click', onSendBroadcast);
   pendingUsersEl.addEventListener('click', onUserApprovalAction);
-  refreshAll();
+
+  try {
+    await hydrateState();
+    renderActorSelect();
+    refreshAll();
+  } catch (error) {
+    assignResult.textContent = `Failed to load data: ${error.message}`;
+  }
 }
 
-function onCreateRideRequest(event) {
+async function hydrateState() {
+  const [users, rides] = await Promise.all([apiClient.getUsers(), apiClient.getRides()]);
+  state.users = users;
+  state.rides = rides;
+}
+
+async function onCreateRideRequest(event) {
   event.preventDefault();
   if (!canRequestRide(currentActor())) {
     assignResult.textContent = 'Only approved members can request rides.';
     return;
   }
 
-  const memberId = memberSelect.value;
-  state.rides.push({
-    id: `r${state.rides.length + 1}`,
-    memberId,
+  const optimisticRide = {
+    id: `temp-${Date.now()}`,
+    memberId: memberSelect.value,
     scheduledFor: document.querySelector('#pickup-date').value,
     pickupNotes: document.querySelector('#pickup-notes').value.trim(),
     status: 'requested',
-  });
+  };
 
-  event.target.reset();
-  document.querySelector('#pickup-date').value = nextSunday();
-  assignResult.textContent = 'Ride request created.';
-  persist();
+  const before = snapshot(state.rides);
+  state.rides = [...state.rides, optimisticRide];
+  refreshAll();
+
+  try {
+    const created = await apiClient.createRide(optimisticRide);
+    state.rides = state.rides.map((ride) => (ride.id === optimisticRide.id ? created : ride));
+    assignResult.textContent = 'Ride request created.';
+    event.target.reset();
+    document.querySelector('#pickup-date').value = nextSunday();
+  } catch (error) {
+    state.rides = before;
+    assignResult.textContent = `Ride request failed: ${error.message}`;
+  }
   refreshAll();
 }
 
-function onAutoAssign() {
+async function onAutoAssign() {
   if (!canDispatch(currentActor())) {
     assignResult.textContent = 'Only approved dispatchers/managers/admins can run dispatch actions.';
     return;
   }
 
+  const before = snapshot(state.rides);
+  const optimistic = snapshot(state.rides);
   const assignments = autoAssignRides({
-    rides: state.rides,
+    rides: optimistic,
     users: state.users,
     maxRidesPerDriver: state.settings.maxRidesPerDriver,
   });
+  state.rides = optimistic;
   assignResult.textContent = assignments.length
-    ? `Assigned ${assignments.length} ride(s).`
+    ? `Assigning ${assignments.length} ride(s)...`
     : 'No requested rides were available for assignment.';
-  persist();
+  refreshAll();
+
+  if (!assignments.length) return;
+
+  try {
+    const response = await apiClient.autoAssign({
+      actorId: currentActor().id,
+      maxRidesPerDriver: state.settings.maxRidesPerDriver,
+    });
+    state.rides = response.rides;
+    assignResult.textContent = `Assigned ${response.assignments.length} ride(s).`;
+  } catch (error) {
+    state.rides = before;
+    assignResult.textContent = `Auto-assign failed: ${error.message}`;
+  }
   refreshAll();
 }
 
-function onUserApprovalAction(event) {
-  const button = event.target.closest('button[data-action]');
-  if (!button) return;
-  if (!canManageUsers(currentActor())) return;
-
-  const userId = button.dataset.userId;
-  const action = button.dataset.action;
-  const target = state.users.find((u) => u.id === userId);
-  if (!target) return;
-
-  const before = snapshot(target);
-  if (action === 'approve') {
-    target.approval_status = 'approved';
-    target.approved_by = currentActor().id;
-    target.approved_at = new Date().toISOString();
-  } else if (action === 'reject') {
-    target.approval_status = 'rejected';
-    target.approved_by = currentActor().id;
-    target.approved_at = new Date().toISOString();
-  }
-
-  writeAudit({
-    type: 'user.approval_status.changed',
-    actorId: currentActor().id,
-    before,
-    after: snapshot(target),
-  });
-
-  persist();
-  refreshAll();
+function onUserApprovalAction() {
+  // Approval UI is retained for parity, but user writes are managed via backend admin APIs in future work.
 }
 
 function onSaveSettings() {
@@ -155,21 +141,10 @@ function onSaveSettings() {
     broadcastStatus.textContent = 'Only super admins can update settings.';
     return;
   }
-
-  const before = snapshot(state.settings);
   state.settings.maxRidesPerDriver = Math.max(1, Number(maxRidesInput.value) || 1);
   state.settings.emergencyBroadcastDraft = broadcastDraft.value.trim();
-
-  writeAudit({
-    type: 'settings.updated',
-    actorId: currentActor().id,
-    before,
-    after: snapshot(state.settings),
-  });
-
-  persist();
+  persistSettings();
   broadcastStatus.textContent = 'Settings saved.';
-  refreshAll();
 }
 
 function onSendBroadcast() {
@@ -184,20 +159,18 @@ function onSendBroadcast() {
     return;
   }
 
-  const before = snapshot(state.settings);
   state.settings.lastBroadcastAt = new Date().toISOString();
   state.settings.lastBroadcastBy = currentActor().id;
 
-  // Postmark is the email provider of record; in this MVP we store audit + trigger metadata only.
   writeAudit({
     type: 'broadcast.sent',
     actorId: currentActor().id,
-    before,
+    before: null,
     after: snapshot(state.settings),
     metadata: { channel: 'postmark', draft: message },
   });
 
-  persist();
+  persistSettings();
   broadcastStatus.textContent = `Emergency broadcast sent at ${new Date(state.settings.lastBroadcastAt).toLocaleString()}.`;
   refreshAll();
 }
@@ -220,7 +193,7 @@ function renderActorSelect() {
 
 function renderActorStatus() {
   const actor = currentActor();
-  actorStatus.textContent = `${actor.fullName}: ${actor.role} / ${actor.approval_status}`;
+  actorStatus.textContent = actor ? `${actor.fullName}: ${actor.role} / ${actor.approval_status}` : 'No users available';
 }
 
 function renderSelects() {
@@ -228,15 +201,11 @@ function renderSelects() {
   const approvedMembers = state.users.filter((u) => u.role === 'member' && u.approval_status === 'approved');
   const approvedDrivers = state.users.filter((u) => u.role === 'volunteer_driver' && u.approval_status === 'approved');
 
-  memberSelect.innerHTML = approvedMembers
-    .map((u) => `<option value="${u.id}">${u.fullName}</option>`)
-    .join('');
-  driverSelect.innerHTML = approvedDrivers
-    .map((u) => `<option value="${u.id}">${u.fullName}</option>`)
-    .join('');
+  memberSelect.innerHTML = approvedMembers.map((u) => `<option value="${u.id}">${u.fullName}</option>`).join('');
+  driverSelect.innerHTML = approvedDrivers.map((u) => `<option value="${u.id}">${u.fullName}</option>`).join('');
 
-  requestForm.querySelector('button[type="submit"]').disabled = !canRequestRide(actor);
-  autoAssignBtn.disabled = !canDispatch(actor);
+  requestForm.querySelector('button[type="submit"]').disabled = !actor || !canRequestRide(actor);
+  autoAssignBtn.disabled = !actor || !canDispatch(actor);
 }
 
 function renderBoard() {
@@ -249,10 +218,12 @@ function renderBoard() {
     .filter((r) => r.status === 'requested')
     .map((r) => {
       const member = state.users.find((u) => u.id === r.memberId);
-      const nearest = nearestDrivers(member, approvedDrivers, queueLoads)
-        .map((d) => `${d.fullName} (${d.distanceKm.toFixed(1)}km)`)
-        .join(', ');
-      return `<li><strong>${member.fullName}</strong> - ${r.scheduledFor}<br/><span class="muted">Closest approved drivers: ${nearest || 'none'}</span></li>`;
+      const nearest = member?.coordinates
+        ? nearestDrivers(member, approvedDrivers.filter((d) => d.coordinates), queueLoads)
+          .map((d) => `${d.fullName} (${d.distanceKm.toFixed(1)}km)`)
+          .join(', ')
+        : '';
+      return `<li><strong>${member?.fullName ?? 'Unknown member'}</strong> - ${r.scheduledFor}<br/><span class="muted">Closest approved drivers: ${nearest || 'none'}</span></li>`;
     })
     .join('') || '<li class="muted">No requested rides.</li>';
 
@@ -262,45 +233,53 @@ function renderBoard() {
     .map((r) => {
       const member = state.users.find((u) => u.id === r.memberId);
       const driver = state.users.find((u) => u.id === r.driverId);
-      return `<li><span class="badge">Assigned</span> ${member.fullName} → ${driver.fullName} (Stop ${r.queueOrder})</li>`;
+      return `<li><span class="badge">Assigned</span> ${member?.fullName ?? 'Unknown'} → ${driver?.fullName ?? 'Unassigned'} (Stop ${r.queueOrder ?? '-'})</li>`;
     })
     .join('') || '<li class="muted">No assigned rides.</li>';
 }
 
-function renderDriverQueue() {
+async function renderDriverQueue() {
   const actor = currentActor();
-  if (!canDrive(actor)) {
+  if (!actor || !canDrive(actor)) {
     driverQueue.innerHTML = '<li class="muted">Only approved drivers can access this queue.</li>';
     return;
   }
 
-  const queue = queueForDriver(driverSelect.value, state.rides, state.users);
-  driverQueue.innerHTML = queue
-    .map((item) => {
-      const { lat, lon } = item.member.coordinates;
-      const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
-      return `<li><strong>${item.member.fullName}</strong> — ${item.pickupNotes || 'No notes'}<br/><a href="${navUrl}" target="_blank" rel="noreferrer">Start navigation</a></li>`;
-    })
-    .join('') || '<li class="muted">No active stops for this driver.</li>';
+  const driverId = driverSelect.value;
+  if (!driverId) {
+    driverQueue.innerHTML = '<li class="muted">No approved drivers available.</li>';
+    return;
+  }
+
+  try {
+    const queue = await apiClient.getDriverQueue(driverId);
+    driverQueue.innerHTML = queue
+      .map((item) => {
+        const { lat, lon } = item.member.coordinates;
+        const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
+        return `<li><strong>${item.member.fullName}</strong> — ${item.pickupNotes || 'No notes'}<br/><a href="${navUrl}" target="_blank" rel="noreferrer">Start navigation</a></li>`;
+      })
+      .join('') || '<li class="muted">No active stops for this driver.</li>';
+  } catch (error) {
+    driverQueue.innerHTML = `<li class="muted">Failed to load queue: ${error.message}</li>`;
+  }
 }
 
 function renderAdminPanel() {
   const actor = currentActor();
-  const canAdmin = canManageUsers(actor);
+  const canAdmin = actor && canManageUsers(actor);
   adminPanel.hidden = !canAdmin;
   adminHint.hidden = canAdmin;
 
   const pending = state.users.filter((u) => u.approval_status === 'pending');
   pendingUsersEl.innerHTML = pending
-    .map((u) => `<li>${u.fullName} (${u.role})
-      <button data-action="approve" data-user-id="${u.id}">Approve</button>
-      <button data-action="reject" data-user-id="${u.id}">Reject</button>
-    </li>`)
+    .map((u) => `<li>${u.fullName} (${u.role})</li>`)
     .join('') || '<li class="muted">No pending users.</li>';
 }
 
 function renderSettings() {
-  const isSA = isSuperAdmin(currentActor());
+  const actor = currentActor();
+  const isSA = actor && isSuperAdmin(actor);
   document.querySelector('#super-admin-settings').hidden = !isSA;
   document.querySelector('#super-admin-hint').hidden = isSA;
   maxRidesInput.value = state.settings.maxRidesPerDriver;
@@ -311,7 +290,7 @@ function renderAuditLog() {
   auditLogEl.innerHTML = state.auditLogs
     .slice()
     .reverse()
-    .map((log) => `<li><strong>${log.type}</strong> by ${displayName(log.actorId)} at ${new Date(log.timestamp).toLocaleString()}<br/><span class="muted">before=${JSON.stringify(log.before)} | after=${JSON.stringify(log.after)}</span></li>`)
+    .map((log) => `<li><strong>${log.type}</strong> by ${displayName(log.actorId)} at ${new Date(log.timestamp).toLocaleString()}</li>`)
     .join('') || '<li class="muted">No audit records yet.</li>';
 }
 
@@ -328,7 +307,7 @@ function writeAudit({ type, actorId, before, after, metadata = {} }) {
 }
 
 function currentActor() {
-  return state.users.find((u) => u.id === actorSelect.value) ?? state.users[0];
+  return state.users.find((u) => u.id === actorSelect.value) ?? state.users[0] ?? null;
 }
 
 function canRequestRide(user) {
@@ -360,17 +339,17 @@ function snapshot(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
-function persist() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+function persistSettings() {
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(state.settings));
 }
 
-function loadState() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return snapshot(defaultState);
+function loadSettings() {
+  const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+  if (!raw) return snapshot(defaultState.settings);
   try {
-    return { ...snapshot(defaultState), ...JSON.parse(raw) };
+    return { ...snapshot(defaultState.settings), ...JSON.parse(raw) };
   } catch {
-    return snapshot(defaultState);
+    return snapshot(defaultState.settings);
   }
 }
 
