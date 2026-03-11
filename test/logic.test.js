@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { autoAssignRides, haversineDistanceKm, queueForDriver } from '../logic.js';
+import {
+  autoAssignRides,
+  autoAssignRidesWithEvents,
+  haversineDistanceKm,
+  queueForDriver,
+} from '../logic.js';
 
 test('haversineDistanceKm returns 0 for identical points', () => {
   const d = haversineDistanceKm({ lat: 1, lon: 1 }, { lat: 1, lon: 1 });
@@ -51,4 +56,32 @@ test('queueForDriver returns only assigned rides sorted by queue order', () => {
   const queue = queueForDriver('d1', rides, users);
 
   assert.deepEqual(queue.map((q) => q.id), ['r2', 'r1']);
+});
+
+test('autoAssignRidesWithEvents emits assignment and status events', () => {
+  const users = [
+    {
+      id: 'm1',
+      role: 'member',
+      approval_status: 'approved',
+      coordinates: { lat: 35, lon: -90 },
+    },
+    {
+      id: 'd1',
+      role: 'volunteer_driver',
+      approval_status: 'approved',
+      coordinates: { lat: 35.02, lon: -90 },
+    },
+  ];
+  const rides = [{ id: 'r1', memberId: 'm1', status: 'requested', driverEtaMinutes: 10 }];
+
+  const { assignments, emittedEvents } = autoAssignRidesWithEvents({ rides, users });
+
+  assert.equal(assignments.length, 1);
+  assert.equal(emittedEvents.length, 3);
+  assert.deepEqual(emittedEvents.map((e) => e.type), [
+    'ride.assigned',
+    'ride.status_changed',
+    'ride.driver_eta_10m',
+  ]);
 });

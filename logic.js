@@ -62,6 +62,73 @@ export function autoAssignRides({ rides, users, maxRidesPerDriver = Infinity }) 
   return assignments;
 }
 
+export function autoAssignRidesWithEvents({
+  rides,
+  users,
+  maxRidesPerDriver = Infinity,
+  emitEvent,
+}) {
+  const assignments = [];
+  const emittedEvents = [];
+  const emit = typeof emitEvent === 'function'
+    ? emitEvent
+    : (event) => {
+      emittedEvents.push(event);
+    };
+
+  const drivers = users.filter(
+    (u) => u.role === 'volunteer_driver' && u.approval_status === 'approved',
+  );
+
+  const queueLoads = Object.fromEntries(drivers.map((d) => [d.id, 0]));
+  rides
+    .filter((r) => r.status === 'assigned' && r.driverId)
+    .forEach((r) => {
+      queueLoads[r.driverId] = (queueLoads[r.driverId] ?? 0) + 1;
+    });
+
+  for (const ride of rides) {
+    if (ride.status !== 'requested') continue;
+    const member = users.find((u) => u.id === ride.memberId);
+    if (!member) continue;
+
+    const candidates = nearestDrivers(member, drivers, queueLoads)
+      .filter((driver) => queueLoads[driver.id] < maxRidesPerDriver);
+    if (!candidates.length) continue;
+
+    const selected = candidates[0];
+    queueLoads[selected.id] += 1;
+    ride.driverId = selected.id;
+    ride.status = 'assigned';
+    ride.queueOrder = queueLoads[selected.id];
+
+    assignments.push({ rideId: ride.id, driverId: selected.id });
+
+    emit({
+      type: 'ride.assigned',
+      ride: { ...ride },
+      occurredAt: new Date().toISOString(),
+    });
+    emit({
+      type: 'ride.status_changed',
+      ride: { ...ride },
+      previousStatus: 'requested',
+      status: 'assigned',
+      occurredAt: new Date().toISOString(),
+    });
+
+    if (ride.driverEtaMinutes && ride.driverEtaMinutes <= 10) {
+      emit({
+        type: 'ride.driver_eta_10m',
+        ride: { ...ride },
+        occurredAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  return { assignments, emittedEvents };
+}
+
 export function queueForDriver(driverId, rides, users) {
   return rides
     .filter((r) => r.driverId === driverId && r.status === 'assigned')
