@@ -32,6 +32,8 @@ const BOOTSTRAP_AUTH_TOKEN = process.env.BOOTSTRAP_AUTH_TOKEN;
 const TRUST_PROXY = (process.env.TRUST_PROXY ?? 'true') === 'true';
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY ?? '';
 const ENABLE_ROUTE_MATRIX = (process.env.ENABLE_ROUTE_MATRIX ?? 'true') === 'true';
+const POSTGRES_INT_MAX = 2147483647;
+const MAX_RIDES_PER_DRIVER = readPositiveIntEnv('MAX_RIDES_PER_DRIVER', POSTGRES_INT_MAX);
 
 if (!SESSION_SECRET || !BOOTSTRAP_AUTH_TOKEN) {
   throw new Error('SESSION_SECRET and BOOTSTRAP_AUTH_TOKEN are required.');
@@ -52,6 +54,18 @@ const LEGACY_ROLE_MAP = {
 
 function normalizeRole(role) {
   return LEGACY_ROLE_MAP[role] ?? role;
+}
+
+function readPositiveIntEnv(name, fallback) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.min(parsed, POSTGRES_INT_MAX);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -320,6 +334,7 @@ async function assignRide(res, rideId, { driverId, actorId, expectedRevision, ex
       p_ride_id: rideId,
       p_driver_id: driverId,
       p_actor_id: actorId ?? null,
+      p_max_rides_per_driver: MAX_RIDES_PER_DRIVER,
       p_expected_revision: Number(expectedRevision),
       p_expected_updated_at: expectedUpdatedAt ?? null,
     }),
@@ -327,8 +342,11 @@ async function assignRide(res, rideId, { driverId, actorId, expectedRevision, ex
 
   const row = result[0];
   if (row?.conflict) {
+    const conflictMessage = row.conflict_reason === 'driver_at_capacity'
+      ? 'Selected driver is at capacity. Choose another driver or increase the ride limit.'
+      : 'Ride was updated by another dispatcher. Please refresh and retry.';
     return json(res, 409, {
-      error: 'Ride was updated by another dispatcher. Please refresh and retry.',
+      error: conflictMessage,
       code: row.conflict_reason,
       latestRide: await fetchRideById(rideId),
       rides: await fetchRides(),
