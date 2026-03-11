@@ -4,6 +4,66 @@ Production-oriented Node server for dispatch + notifications. This service is de
 
 > Email delivery is Postmark-first. Configure and operate all email notification flows through Postmark credentials and templates.
 
+## Quickstart (Ride to Church MVP)
+
+### 1) Prerequisites
+
+- Node.js (LTS)
+- npm
+- Supabase project with SQL Editor access
+
+### 2) Database initialization (Supabase)
+
+In Supabase SQL Editor:
+
+1. Enable required extensions:
+   - `pgcrypto`
+   - `postgis`
+2. Run migrations in order:
+   1. `migrations/001_init_schema.sql`
+   2. `migrations/002_indexes.sql`
+   3. `migrations/003_dispatch_concurrency.sql`
+   4. `migrations/004_queue_optimizer_inputs.sql`
+
+### 3) Environment configuration
+
+Create `.env` in the project root (or configure host-managed secrets). You can copy `.env.example` and fill in secrets.
+
+Required values:
+
+- `SUPABASE_URL=https://nwojorirnvquctowiolq.supabase.co`
+- `SUPABASE_SERVICE_ROLE_KEY=<service_role key>`
+- `SESSION_SECRET=<secure random value>`
+- `BOOTSTRAP_AUTH_TOKEN=<secure random value>`
+- `POSTMARK_API_TOKEN=<postmark server token>`
+
+### 4) Install and run
+
+```bash
+npm install
+npm start
+```
+
+App default URL: `http://localhost:4173`.
+
+### 5) Verify
+
+```bash
+npm test
+```
+
+### 6) Production
+
+Use:
+
+```bash
+npm run start:prod
+```
+
+In production, deploy behind managed TLS termination and keep secrets in managed secret storage.
+
+---
+
 ## Documentation map
 
 - **Architecture + function reference:** `docs/ARCHITECTURE.md`
