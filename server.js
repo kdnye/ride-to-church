@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { autoAssignRides, optimizeDriverQueue } from './logic.js';
+import { getNewlyAssignedRidesForPersistence } from './src/autoAssignPersistence.js';
 import { canAccessDriverQueue } from './src/authz.js';
 import { getRouteMatrixDurationsSeconds } from './src/services/routing/googleRoutesMatrix.js';
 import { buildTravelTimeLookup } from './src/services/routing/travelTimeCache.js';
@@ -456,9 +457,9 @@ async function autoAssign(actorId, maxRidesPerDriver) {
     travelTimeSecondsByMemberDriver,
   });
 
+  const ridesToPersist = getNewlyAssignedRidesForPersistence({ rides, assignments });
   const touchedDriverIds = new Set();
-  await Promise.all(rides
-    .filter((r) => r.status === 'assigned' && r.driverId)
+  await Promise.all(ridesToPersist
     .map(async (ride) => {
       touchedDriverIds.add(ride.driverId);
       await sbRequest(`/rest/v1/rides?id=eq.${ride.id}`, {
