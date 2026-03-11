@@ -22,6 +22,7 @@ const state = {
   currentUser: JSON.parse(localStorage.getItem('rtc-user')) || null,
 };
 
+// DOM Elements
 const memberSelect = document.querySelector('#member-select');
 const driverSelect = document.querySelector('#driver-select');
 const requestedRides = document.querySelector('#requested-rides');
@@ -30,14 +31,11 @@ const driverQueue = document.querySelector('#driver-queue');
 const assignResult = document.querySelector('#assign-result');
 const requestForm = document.querySelector('#request-form');
 const autoAssignBtn = document.querySelector('#auto-assign-btn');
-const userManagementListEl = document.querySelector('#user-management-list');
-const adminHint = document.querySelector('#admin-hint');
+const adminPanel = document.querySelector('#view-admin');
 const maxRidesInput = document.querySelector('#max-rides-per-driver');
 const broadcastDraft = document.querySelector('#broadcast-draft');
 const broadcastStatus = document.querySelector('#broadcast-status');
 const auditLogEl = document.querySelector('#audit-log');
-const mainNav = document.querySelector('#main-nav');
-const profileInfo = document.querySelector('#profile-info');
 
 const ROLE_LABELS = {
   member: 'Member',
@@ -57,6 +55,7 @@ const realtime = {
   isRefreshQueued: false,
 };
 
+// --- ROUTING ---
 const routes = [
   { path: '#/login', viewId: 'view-login', label: 'Login', public: true },
   { path: '#/register', viewId: 'view-register', label: 'Register', public: true },
@@ -70,42 +69,137 @@ const routes = [
 
 window.addEventListener('hashchange', navigate);
 
+function navigate() {
+  const hash = window.location.hash || '#/profile';
+  const actor = currentActor();
+  let route = routes.find(r => r.path === hash);
+
+  if (!actor && (!route || !route.public)) {
+    window.location.hash = '#/login';
+    return;
+  }
+
+  if (actor && route && !route.public && !route.auth(actor)) {
+    window.location.hash = '#/profile';
+    return;
+  }
+
+  if (actor && route && route.public) {
+    window.location.hash = '#/profile';
+    return;
+  }
+
+  document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active'));
+  const activeView = document.getElementById(route ? route.viewId : 'view-profile');
+  if (activeView) activeView.classList.add('active');
+
+  document.querySelectorAll('nav#main-nav a').forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === hash);
+  });
+}
+
+function renderNav() {
+  const actor = currentActor();
+  const navEl = document.querySelector('#main-nav');
+  
+  if (!actor) {
+    navEl.innerHTML = ''; 
+    return;
+  }
+
+  navEl.innerHTML = routes
+    .filter(r => !r.public && r.auth(actor))
+    .map(r => `<a href="${r.path}">${r.label}</a>`)
+    .join('');
+}
+
+// --- INITIALIZATION ---
 boot();
 
 async function boot() {
-  // 1. Set default UI states
   document.querySelector('#pickup-date').value = nextSunday();
-
-  // 2. Attach global event listeners
+  
   requestForm.addEventListener('submit', onCreateRideRequest);
   document.querySelector('#auto-assign-btn').addEventListener('click', onAutoAssign);
   driverSelect.addEventListener('change', renderDriverQueue);
   document.querySelector('#save-settings-btn').addEventListener('click', onSaveSettings);
   document.querySelector('#send-broadcast-btn').addEventListener('click', onSendBroadcast);
 
-  // Auth listeners
   document.querySelector('#login-form').addEventListener('submit', onLogin);
   document.querySelector('#register-form').addEventListener('submit', onRegister);
   document.querySelector('#logout-btn').addEventListener('click', onLogout);
-  userManagementListEl.addEventListener('change', onUserManagementChange);
 
-  // 3. Initialize routing immediately to display the correct view (Login or Profile)
   navigate();
   renderNav();
 
-  // 4. Only fetch protected data if we actually have a logged-in user
   if (currentActor()) {
     try {
       await hydrateState();
       refreshAll();
       await initRideRealtimeSubscription();
     } catch (error) {
-      console.error('Boot data load failed:', error);
-      // If this was a 401, the apiClient error handler will clear the user and force a logout.
+      console.error('Failed to load protected data:', error);
     }
   }
 }
 
+// --- AUTHENTICATION ACTIONS ---
+async function onLogin(event) {
+  event.preventDefault();
+  const email = document.querySelector('#login-email').value;
+  const password = document.querySelector('#login-password').value;
+  const errorEl = document.querySelector('#login-error');
+  errorEl.textContent = '';
+
+  try {
+    const res = await apiClient.login({ email, password });
+    state.currentUser = res.user;
+    localStorage.setItem('rtc-user', JSON.stringify(res.user));
+    
+    await hydrateState(); 
+    refreshAll();
+    window.location.hash = '#/profile';
+  } catch (error) {
+    errorEl.textContent = error.details?.error || 'Login failed. Check credentials.';
+  }
+}
+
+async function onRegister(event) {
+  event.preventDefault();
+  const payload = {
+    fullName: document.querySelector('#reg-name').value,
+    email: document.querySelector('#reg-email').value,
+    phone: document.querySelector('#reg-phone').value,
+    password: document.querySelector('#reg-password').value,
+  };
+  
+  const statusEl = document.querySelector('#reg-status');
+  statusEl.style.color = 'inherit';
+  statusEl.textContent = 'Registering...';
+
+  try {
+    await apiClient.register(payload);
+    statusEl.style.color = '#2e7d32'; 
+    statusEl.textContent = 'Success! Please log in (account requires admin approval).';
+    event.target.reset();
+  } catch (error) {
+    statusEl.style.color = '#d32f2f'; 
+    statusEl.textContent = error.details?.error || 'Registration failed.';
+  }
+}
+
+async function onLogout() {
+  try {
+    await apiClient.logout();
+  } catch(e) {}
+  
+  state.currentUser = null;
+  localStorage.removeItem('rtc-user');
+  window.location.hash = '#/login';
+  refreshAll();
+}
+
+// --- REALTIME ---
 async function initRideRealtimeSubscription() {
   if (typeof window !== 'undefined' && typeof window.__rtcRealtimeCleanup === 'function') {
     window.__rtcRealtimeCleanup();
@@ -115,11 +209,7 @@ async function initRideRealtimeSubscription() {
   if (!config) return;
 
   realtime.client = createClient(config.supabaseUrl, config.supabaseAnonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
 
   const onRideChange = (payload) => {
@@ -145,9 +235,7 @@ async function loadPublicSupabaseConfig() {
     const config = await response.json();
     if (!config?.supabaseUrl || !config?.supabaseAnonKey) return null;
     return config;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function isDispatcherBoardRelevantChange(payload) {
@@ -184,79 +272,11 @@ function cleanupRealtimeSubscription() {
   realtime.client = null;
 }
 
+// --- APP ACTIONS ---
 async function hydrateState() {
-  if (!state.currentUser) {
-    state.users = [];
-    state.rides = [];
-    return;
-  }
-
   const [users, rides] = await Promise.all([apiClient.getUsers(), apiClient.getRides()]);
   state.users = users;
   state.rides = rides;
-  const refreshedUser = users.find((u) => u.id === state.currentUser?.id);
-  if (refreshedUser) {
-    state.currentUser = refreshedUser;
-    localStorage.setItem('rtc-user', JSON.stringify(refreshedUser));
-  }
-}
-
-async function onLogin(event) {
-  event.preventDefault();
-  const email = document.querySelector('#login-email').value.trim();
-  const password = document.querySelector('#login-password').value;
-  const errorEl = document.querySelector('#login-error');
-  errorEl.textContent = '';
-
-  try {
-    const res = await apiClient.login({ email, password });
-    state.currentUser = res.user;
-    localStorage.setItem('rtc-user', JSON.stringify(res.user));
-    await hydrateState();
-    refreshAll();
-    window.location.hash = '#/profile';
-  } catch (error) {
-    errorEl.textContent = error.details?.error || 'Login failed. Check credentials.';
-  }
-}
-
-async function onRegister(event) {
-  event.preventDefault();
-  const payload = {
-    fullName: document.querySelector('#reg-name').value.trim(),
-    email: document.querySelector('#reg-email').value.trim(),
-    phone: document.querySelector('#reg-phone').value.trim(),
-    password: document.querySelector('#reg-password').value,
-  };
-
-  const statusEl = document.querySelector('#reg-status');
-  statusEl.style.color = 'inherit';
-  statusEl.textContent = 'Registering...';
-
-  try {
-    await apiClient.register(payload);
-    statusEl.style.color = '#2e7d32';
-    statusEl.textContent = 'Success! Please log in (your account requires admin approval).';
-    event.target.reset();
-  } catch (error) {
-    statusEl.style.color = '#d32f2f';
-    statusEl.textContent = error.details?.error || 'Registration failed.';
-  }
-}
-
-async function onLogout() {
-  try {
-    await apiClient.logout();
-  } catch {
-    // Ignore logout network errors.
-  }
-
-  state.currentUser = null;
-  state.users = [];
-  state.rides = [];
-  localStorage.removeItem('rtc-user');
-  window.location.hash = '#/login';
-  refreshAll();
 }
 
 async function onCreateRideRequest(event) {
@@ -293,7 +313,7 @@ async function onCreateRideRequest(event) {
 
 async function onAutoAssign() {
   if (!canDispatch(currentActor())) {
-    assignResult.textContent = 'Only approved volunteer dispatchers, people managers, or super admins can run dispatch actions.';
+    assignResult.textContent = 'Unauthorized to run dispatch.';
     return;
   }
 
@@ -326,29 +346,8 @@ async function onAutoAssign() {
   refreshAll();
 }
 
-async function onUserManagementChange(event) {
-  const target = event.target;
-  if (!(target instanceof HTMLSelectElement)) return;
-
-  const userId = target.dataset.userId;
-  const field = target.dataset.field;
-  if (!userId || !field) return;
-
-  try {
-    await apiClient.updateUser(userId, { [field]: target.value });
-    await hydrateState();
-    refreshAll();
-    assignResult.textContent = 'User updated.';
-  } catch (error) {
-    assignResult.textContent = `User update failed: ${error.message}`;
-  }
-}
-
 function onSaveSettings() {
-  if (!isSuperAdmin(currentActor())) {
-    broadcastStatus.textContent = 'Only super admins can update settings.';
-    return;
-  }
+  if (!isSuperAdmin(currentActor())) return;
   state.settings.maxRidesPerDriver = Math.max(1, Number(maxRidesInput.value) || 1);
   state.settings.emergencyBroadcastDraft = broadcastDraft.value.trim();
   persistSettings();
@@ -356,11 +355,7 @@ function onSaveSettings() {
 }
 
 function onSendBroadcast() {
-  if (!isSuperAdmin(currentActor())) {
-    broadcastStatus.textContent = 'Only super admins can send broadcasts.';
-    return;
-  }
-
+  if (!isSuperAdmin(currentActor())) return;
   const message = broadcastDraft.value.trim();
   if (!message) {
     broadcastStatus.textContent = 'Broadcast draft is empty.';
@@ -379,80 +374,26 @@ function onSendBroadcast() {
   });
 
   persistSettings();
-  broadcastStatus.textContent = `Emergency broadcast sent at ${new Date(state.settings.lastBroadcastAt).toLocaleString()}.`;
+  broadcastStatus.textContent = `Emergency broadcast sent.`;
   refreshAll();
 }
 
+// --- RENDERING ---
 function refreshAll() {
+  renderNav();
+  navigate(); 
+
+  const actor = currentActor();
+  if (actor) {
+    document.querySelector('#profile-info').innerHTML = `Logged in as <strong>${actor.fullName || actor.email || 'User'}</strong><br>Role: ${roleLabel(actor.role)}<br>Status: ${actor.approvalStatus}`;
+  }
+
   renderSelects();
   renderBoard();
   renderDriverQueue();
   renderAdminPanel();
   renderSettings();
   renderAuditLog();
-
-  renderNav();
-  navigate();
-}
-
-function navigate() {
-  const hash = window.location.hash || '#/profile';
-  const actor = currentActor();
-  const route = routes.find((item) => item.path === hash);
-
-  if (!actor && (!route || !route.public)) {
-    if (window.location.hash !== '#/login') {
-      window.location.hash = '#/login';
-      return;
-    }
-  }
-
-  if (actor && route && !route.public && !route.auth(actor)) {
-    if (window.location.hash !== '#/profile') {
-      window.location.hash = '#/profile';
-      return;
-    }
-  }
-
-  if (actor && route && route.public) {
-    if (window.location.hash !== '#/profile') {
-      window.location.hash = '#/profile';
-      return;
-    }
-  }
-
-  let activeRoute = route;
-  if (!activeRoute) {
-    activeRoute = actor ? routes.find((item) => item.path === '#/profile') : routes.find((item) => item.path === '#/login');
-  }
-
-  document.querySelectorAll('.page-view').forEach((el) => el.classList.remove('active'));
-  const activeView = document.getElementById(activeRoute?.viewId ?? 'view-login');
-  if (activeView) activeView.classList.add('active');
-
-  document.querySelectorAll('nav#main-nav a').forEach((link) => {
-    link.classList.toggle('active', link.getAttribute('href') === hash);
-  });
-}
-
-function renderNav() {
-  const actor = currentActor();
-  if (!actor) {
-    mainNav.innerHTML = '';
-    return;
-  }
-
-  mainNav.innerHTML = routes
-    .filter((route) => !route.public && route.auth(actor))
-    .map((route) => `<a href="${route.path}">${route.label}</a>`)
-    .join('');
-}
-
-function renderProfile() {
-  const actor = currentActor();
-  profileInfo.textContent = actor
-    ? `${actor.fullName} (${actor.email || 'No email'}) — ${roleLabel(actor.role)} / ${actor.approval_status}`
-    : 'Not signed in.';
 }
 
 function renderSelects() {
@@ -462,13 +403,6 @@ function renderSelects() {
 
   memberSelect.innerHTML = approvedMembers.map((u) => `<option value="${u.id}">${u.fullName}</option>`).join('');
   driverSelect.innerHTML = approvedDrivers.map((u) => `<option value="${u.id}">${u.fullName}</option>`).join('');
-
-  if (actor && canRequestRide(actor) && approvedMembers.some((u) => u.id === actor.id)) {
-    memberSelect.value = actor.id;
-  }
-  if (actor && canDrive(actor) && approvedDrivers.some((u) => u.id === actor.id)) {
-    driverSelect.value = actor.id;
-  }
 
   requestForm.querySelector('button[type="submit"]').disabled = !actor || !canRequestRide(actor);
   autoAssignBtn.disabled = !actor || !canDispatch(actor);
@@ -506,10 +440,7 @@ function renderBoard() {
 
 async function renderDriverQueue() {
   const actor = currentActor();
-  if (!actor || !canDrive(actor)) {
-    driverQueue.innerHTML = '<li class="muted">Only approved drivers can access this queue.</li>';
-    return;
-  }
+  if (!actor || !canDrive(actor)) return;
 
   const driverId = driverSelect.value;
   if (!driverId) {
@@ -533,43 +464,49 @@ async function renderDriverQueue() {
 
 function renderAdminPanel() {
   const actor = currentActor();
-  const canAdmin = actor && canManageUsers(actor);
-  adminHint.hidden = canAdmin;
-  if (!canAdmin) {
-    userManagementListEl.innerHTML = '';
+  const listEl = document.querySelector('#user-management-list');
+  if (!actor || !canManageUsers(actor)) {
+    listEl.innerHTML = '';
     return;
   }
 
-  userManagementListEl.innerHTML = state.users
-    .map((u) => `
-      <div class="user-row" style="margin-bottom: 1rem; padding: 0.5rem; border: 1px solid #eee;">
-        <strong>${u.fullName}</strong> (${u.email || 'No email'})
-        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-          <select data-user-id="${u.id}" data-field="approval_status">
-            <option value="pending" ${u.approval_status === 'pending' ? 'selected' : ''}>Pending</option>
-            <option value="approved" ${u.approval_status === 'approved' ? 'selected' : ''}>Approved</option>
-            <option value="rejected" ${u.approval_status === 'rejected' ? 'selected' : ''}>Rejected</option>
-            <option value="deactivated" ${u.approval_status === 'deactivated' ? 'selected' : ''}>Deactivated</option>
-          </select>
-          <select data-user-id="${u.id}" data-field="role">
-            <option value="member" ${u.role === 'member' ? 'selected' : ''}>Member</option>
-            <option value="volunteer_driver" ${u.role === 'volunteer_driver' ? 'selected' : ''}>Driver</option>
-            <option value="volunteer_dispatcher" ${u.role === 'volunteer_dispatcher' ? 'selected' : ''}>Dispatcher</option>
-            <option value="people_manager" ${u.role === 'people_manager' ? 'selected' : ''}>Manager</option>
-            <option value="super_admin" ${u.role === 'super_admin' ? 'selected' : ''}>Super Admin</option>
-          </select>
-        </div>
+  listEl.innerHTML = state.users.map(u => `
+    <div class="user-row" style="margin-bottom: 1rem; padding: 0.5rem; border: 1px solid #eee;">
+      <strong>${u.fullName}</strong> (${u.email || 'No email'})
+      <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+        <select onchange="window.updateUserStatus('${u.id}', this.value)">
+          <option value="pending" ${u.approval_status === 'pending' ? 'selected' : ''}>Pending</option>
+          <option value="approved" ${u.approval_status === 'approved' ? 'selected' : ''}>Approved</option>
+          <option value="rejected" ${u.approval_status === 'rejected' ? 'selected' : ''}>Rejected</option>
+        </select>
+        <select onchange="window.updateUserRole('${u.id}', this.value)">
+          <option value="member" ${u.role === 'member' ? 'selected' : ''}>Member</option>
+          <option value="volunteer_driver" ${u.role === 'volunteer_driver' ? 'selected' : ''}>Driver</option>
+          <option value="volunteer_dispatcher" ${u.role === 'volunteer_dispatcher' ? 'selected' : ''}>Dispatcher</option>
+          <option value="people_manager" ${u.role === 'people_manager' ? 'selected' : ''}>Manager</option>
+          <option value="super_admin" ${u.role === 'super_admin' ? 'selected' : ''}>Super Admin</option>
+        </select>
       </div>
-    `)
-    .join('') || '<p class="muted">No users available.</p>';
+    </div>
+  `).join('');
 }
+
+window.updateUserStatus = async (id, status) => {
+  await apiClient.updateUser(id, { approval_status: status });
+  queueRealtimeRefresh();
+};
+
+window.updateUserRole = async (id, role) => {
+  await apiClient.updateUser(id, { role });
+  queueRealtimeRefresh();
+};
 
 function renderSettings() {
   const actor = currentActor();
-  const isSA = actor && isSuperAdmin(actor);
-  document.querySelector('#super-admin-hint').hidden = isSA;
-  maxRidesInput.value = state.settings.maxRidesPerDriver;
-  broadcastDraft.value = state.settings.emergencyBroadcastDraft;
+  if (actor && isSuperAdmin(actor)) {
+    maxRidesInput.value = state.settings.maxRidesPerDriver;
+    broadcastDraft.value = state.settings.emergencyBroadcastDraft;
+  }
 }
 
 function renderAuditLog() {
@@ -592,55 +529,23 @@ function writeAudit({ type, actorId, before, after, metadata = {} }) {
   });
 }
 
-function currentActor() {
-  return state.currentUser;
-}
+function currentActor() { return state.currentUser; }
+function canRequestRide(user) { return user.role === 'member' && user.approvalStatus === 'approved'; }
+function canDrive(user) { return user.role === 'volunteer_driver' && user.approvalStatus === 'approved'; }
+function canDispatch(user) { return ['volunteer_dispatcher', 'people_manager', 'super_admin'].includes(user.role) && user.approvalStatus === 'approved'; }
+function canManageUsers(user) { return ['people_manager', 'super_admin'].includes(user.role) && user.approvalStatus === 'approved'; }
+function isSuperAdmin(user) { return user.role === 'super_admin' && user.approvalStatus === 'approved'; }
 
-function canRequestRide(user) {
-  return !!user && user.role === 'member' && user.approval_status === 'approved';
-}
+function roleLabel(role) { return ROLE_LABELS[role] ?? role; }
+function displayName(userId) { return state.users.find((u) => u.id === userId)?.fullName ?? userId; }
+function snapshot(obj) { return JSON.parse(JSON.stringify(obj)); }
 
-function canDrive(user) {
-  return !!user && user.role === 'volunteer_driver' && user.approval_status === 'approved';
-}
-
-function canDispatch(user) {
-  return !!user && ['volunteer_dispatcher', 'people_manager', 'super_admin'].includes(user.role)
-    && user.approval_status === 'approved';
-}
-
-function canManageUsers(user) {
-  return !!user && ['people_manager', 'super_admin'].includes(user.role) && user.approval_status === 'approved';
-}
-
-function isSuperAdmin(user) {
-  return !!user && user.role === 'super_admin' && user.approval_status === 'approved';
-}
-
-function roleLabel(role) {
-  return ROLE_LABELS[role] ?? role;
-}
-
-function displayName(userId) {
-  return state.users.find((u) => u.id === userId)?.fullName ?? userId;
-}
-
-function snapshot(obj) {
-  return JSON.parse(JSON.stringify(obj));
-}
-
-function persistSettings() {
-  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(state.settings));
-}
-
+function persistSettings() { localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(state.settings)); }
 function loadSettings() {
   const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
   if (!raw) return snapshot(defaultState.settings);
-  try {
-    return { ...snapshot(defaultState.settings), ...JSON.parse(raw) };
-  } catch {
-    return snapshot(defaultState.settings);
-  }
+  try { return { ...snapshot(defaultState.settings), ...JSON.parse(raw) }; } 
+  catch { return snapshot(defaultState.settings); }
 }
 
 function nextSunday() {
