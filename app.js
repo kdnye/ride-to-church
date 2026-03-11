@@ -384,13 +384,13 @@ function onSendBroadcast() {
 }
 
 function refreshAll() {
-  renderProfile();
   renderSelects();
   renderBoard();
   renderDriverQueue();
   renderAdminPanel();
   renderSettings();
   renderAuditLog();
+
   renderNav();
   navigate();
 }
