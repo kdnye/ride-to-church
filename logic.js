@@ -259,6 +259,8 @@ function routeCost(queue, { startCoordinates, speedKmh = DEFAULT_SPEED_KMH } = {
 
     const windowStart = toEpochMinutes(ride.pickupWindowStart);
     const windowEnd = toEpochMinutes(ride.pickupWindowEnd);
+
+    // Penalize early arrivals lightly (with waiting), and late arrivals heavily.
     if (windowStart !== null && timeCursor < windowStart) {
       total += (windowStart - timeCursor) * 0.1;
       timeCursor = windowStart;
