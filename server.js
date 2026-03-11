@@ -306,7 +306,7 @@ async function login(res, { email, password }) {
     return json(res, 400, { error: 'Email and password are required' });
   }
 
-  const rows = await sbRequest('/rest/v1/rpc/verify_login', {
+  const rows = await sbRequest('/rest/v1/rpc/verify_user_password', {
     method: 'POST',
     body: JSON.stringify({ p_email: email, p_password: password })
   });
