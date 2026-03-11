@@ -73,23 +73,36 @@ window.addEventListener('hashchange', navigate);
 boot();
 
 async function boot() {
+  // 1. Set default UI states
   document.querySelector('#pickup-date').value = nextSunday();
+
+  // 2. Attach global event listeners
   requestForm.addEventListener('submit', onCreateRideRequest);
   document.querySelector('#auto-assign-btn').addEventListener('click', onAutoAssign);
   driverSelect.addEventListener('change', renderDriverQueue);
   document.querySelector('#save-settings-btn').addEventListener('click', onSaveSettings);
+  document.querySelector('#send-broadcast-btn').addEventListener('click', onSendBroadcast);
+
+  // Auth listeners
   document.querySelector('#login-form').addEventListener('submit', onLogin);
   document.querySelector('#register-form').addEventListener('submit', onRegister);
   document.querySelector('#logout-btn').addEventListener('click', onLogout);
-  document.querySelector('#send-broadcast-btn').addEventListener('click', onSendBroadcast);
   userManagementListEl.addEventListener('change', onUserManagementChange);
 
-  try {
-    await hydrateState();
-    refreshAll();
-    await initRideRealtimeSubscription();
-  } catch (error) {
-    assignResult.textContent = `Failed to load data: ${error.message}`;
+  // 3. Initialize routing immediately to display the correct view (Login or Profile)
+  navigate();
+  renderNav();
+
+  // 4. Only fetch protected data if we actually have a logged-in user
+  if (currentActor()) {
+    try {
+      await hydrateState();
+      refreshAll();
+      await initRideRealtimeSubscription();
+    } catch (error) {
+      console.error('Boot data load failed:', error);
+      // If this was a 401, the apiClient error handler will clear the user and force a logout.
+    }
   }
 }
 
