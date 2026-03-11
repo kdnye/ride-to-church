@@ -31,13 +31,13 @@ const driverQueue = document.querySelector('#driver-queue');
 const assignResult = document.querySelector('#assign-result');
 const requestForm = document.querySelector('#request-form');
 const autoAssignBtn = document.querySelector('#auto-assign-btn');
-const adminPanel = document.querySelector('#admin-users');
 const userManagementListEl = document.querySelector('#user-management-list');
 const adminHint = document.querySelector('#admin-hint');
 const maxRidesInput = document.querySelector('#max-rides-per-driver');
 const broadcastDraft = document.querySelector('#broadcast-draft');
 const broadcastStatus = document.querySelector('#broadcast-status');
 const auditLogEl = document.querySelector('#audit-log');
+const mainNav = document.querySelector('#main-nav');
 
 const ROLE_LABELS = {
   member: 'Member',
@@ -57,6 +57,17 @@ const realtime = {
   isRefreshQueued: false,
 };
 
+const routes = [
+  { path: '#/profile', viewId: 'view-profile', label: 'Profile', auth: () => true },
+  { path: '#/request', viewId: 'view-request', label: 'Request Ride', auth: canRequestRide },
+  { path: '#/dispatch', viewId: 'view-dispatch', label: 'Dispatch Board', auth: canDispatch },
+  { path: '#/drive', viewId: 'view-driver', label: 'Driver View', auth: canDrive },
+  { path: '#/admin', viewId: 'view-admin', label: 'User Admin', auth: canManageUsers },
+  { path: '#/settings', viewId: 'view-settings', label: 'System Settings', auth: isSuperAdmin },
+];
+
+window.addEventListener('hashchange', navigate);
+
 boot();
 
 async function boot() {
@@ -64,7 +75,7 @@ async function boot() {
   requestForm.addEventListener('submit', onCreateRideRequest);
   document.querySelector('#auto-assign-btn').addEventListener('click', onAutoAssign);
   driverSelect.addEventListener('change', renderDriverQueue);
-  actorSelect.addEventListener('change', refreshAll);
+  actorSelect.addEventListener('change', onActorChange);
   document.querySelector('#save-settings-btn').addEventListener('click', onSaveSettings);
   document.querySelector('#send-broadcast-btn').addEventListener('click', onSendBroadcast);
   userManagementListEl.addEventListener('change', onUserManagementChange);
@@ -295,6 +306,53 @@ function refreshAll() {
   renderAdminPanel();
   renderSettings();
   renderAuditLog();
+  renderNav();
+  navigate();
+}
+
+function onActorChange() {
+  renderNav();
+  ensureAccessibleHash();
+  refreshAll();
+}
+
+function ensureAccessibleHash() {
+  const actor = currentActor();
+  const hash = window.location.hash;
+  const route = routes.find((item) => item.path === hash);
+  if (!route || (actor && !route.auth(actor))) {
+    window.location.hash = '#/profile';
+  }
+}
+
+function navigate() {
+  const hash = window.location.hash || '#/profile';
+  const actor = currentActor();
+  const route = routes.find((item) => item.path === hash);
+
+  if (!route || (actor && !route.auth(actor))) {
+    if (window.location.hash !== '#/profile') {
+      window.location.hash = '#/profile';
+      return;
+    }
+  }
+
+  const activeRoute = route && (!actor || route.auth(actor)) ? route : routes[0];
+  document.querySelectorAll('.page-view').forEach((el) => el.classList.remove('active'));
+  const activeView = document.getElementById(activeRoute.viewId);
+  if (activeView) activeView.classList.add('active');
+
+  document.querySelectorAll('nav#main-nav a').forEach((link) => {
+    link.classList.toggle('active', link.getAttribute('href') === activeRoute.path);
+  });
+}
+
+function renderNav() {
+  const actor = currentActor();
+  mainNav.innerHTML = routes
+    .filter((route) => !actor || route.auth(actor))
+    .map((route) => `<a href="${route.path}">${route.label}</a>`)
+    .join('');
 }
 
 function renderActorSelect() {
@@ -380,9 +438,11 @@ async function renderDriverQueue() {
 function renderAdminPanel() {
   const actor = currentActor();
   const canAdmin = actor && canManageUsers(actor);
-  adminPanel.hidden = !canAdmin;
   adminHint.hidden = canAdmin;
-  if (!canAdmin) return;
+  if (!canAdmin) {
+    userManagementListEl.innerHTML = '';
+    return;
+  }
 
   userManagementListEl.innerHTML = state.users
     .map((u) => `
@@ -411,7 +471,6 @@ function renderAdminPanel() {
 function renderSettings() {
   const actor = currentActor();
   const isSA = actor && isSuperAdmin(actor);
-  document.querySelector('#super-admin-settings').hidden = !isSA;
   document.querySelector('#super-admin-hint').hidden = isSA;
   maxRidesInput.value = state.settings.maxRidesPerDriver;
   broadcastDraft.value = state.settings.emergencyBroadcastDraft;
@@ -442,24 +501,24 @@ function currentActor() {
 }
 
 function canRequestRide(user) {
-  return user.role === 'member' && user.approval_status === 'approved';
+  return !!user && user.role === 'member' && user.approval_status === 'approved';
 }
 
 function canDrive(user) {
-  return user.role === 'volunteer_driver' && user.approval_status === 'approved';
+  return !!user && user.role === 'volunteer_driver' && user.approval_status === 'approved';
 }
 
 function canDispatch(user) {
-  return ['volunteer_dispatcher', 'people_manager', 'super_admin'].includes(user.role)
+  return !!user && ['volunteer_dispatcher', 'people_manager', 'super_admin'].includes(user.role)
     && user.approval_status === 'approved';
 }
 
 function canManageUsers(user) {
-  return ['people_manager', 'super_admin'].includes(user.role) && user.approval_status === 'approved';
+  return !!user && ['people_manager', 'super_admin'].includes(user.role) && user.approval_status === 'approved';
 }
 
 function isSuperAdmin(user) {
-  return user.role === 'super_admin' && user.approval_status === 'approved';
+  return !!user && user.role === 'super_admin' && user.approval_status === 'approved';
 }
 
 function roleLabel(role) {
