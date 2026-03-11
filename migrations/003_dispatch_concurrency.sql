@@ -20,6 +20,7 @@ CREATE OR REPLACE FUNCTION assign_ride_transactional(
   p_ride_id UUID,
   p_driver_id UUID,
   p_actor_id UUID,
+  p_max_rides_per_driver INTEGER,
   p_expected_revision INTEGER,
   p_expected_updated_at TIMESTAMPTZ DEFAULT NULL
 )
@@ -35,6 +36,7 @@ AS $$
 DECLARE
   v_ride rides%ROWTYPE;
   v_existing_driver UUID;
+  v_driver_assignment_count INTEGER;
   v_new_pos INTEGER;
 BEGIN
   SELECT * INTO v_ride FROM rides WHERE id = p_ride_id FOR UPDATE;
@@ -50,6 +52,22 @@ BEGIN
 
   SELECT driver_id INTO v_existing_driver FROM ride_assignments WHERE ride_id = p_ride_id FOR UPDATE;
 
+  WITH locked_rows AS (
+    SELECT ride_id, queue_position
+    FROM ride_assignments
+    WHERE driver_id = p_driver_id
+    FOR UPDATE
+  )
+  SELECT COUNT(*) FILTER (WHERE ride_id <> p_ride_id),
+         COALESCE(MAX(queue_position), 0) + 1
+    INTO v_driver_assignment_count, v_new_pos
+  FROM locked_rows;
+
+  IF v_driver_assignment_count >= p_max_rides_per_driver THEN
+    RETURN QUERY SELECT TRUE, 'driver_at_capacity', v_ride.id, v_ride.revision, v_ride.updated_at;
+    RETURN;
+  END IF;
+
   IF v_existing_driver IS NOT NULL AND v_existing_driver <> p_driver_id THEN
     WITH shifted AS (
       UPDATE ride_assignments
@@ -60,15 +78,6 @@ BEGIN
     )
     SELECT 1;
   END IF;
-
-  WITH locked_rows AS (
-    SELECT queue_position
-    FROM ride_assignments
-    WHERE driver_id = p_driver_id
-    FOR UPDATE
-  )
-  SELECT COALESCE(MAX(queue_position), 0) + 1 INTO v_new_pos
-  FROM locked_rows;
 
   INSERT INTO ride_assignments (ride_id, driver_id, queue_position, assigned_by)
   VALUES (p_ride_id, p_driver_id, v_new_pos, p_actor_id)
