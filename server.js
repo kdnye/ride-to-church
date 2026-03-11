@@ -4,23 +4,30 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { autoAssignRides, optimizeDriverQueue } from './logic.js';
+import {
+  createSession,
+  deleteExpiredSessions,
+  deleteSessionById,
+  extendSessionExpiry,
+  fetchAuthUser,
+  fetchSessionById,
+  sbRequest,
+} from './src/supabaseClient.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicRoot = path.join(__dirname);
 const PORT = Number(process.env.PORT || 4173);
 const NODE_ENV = process.env.NODE_ENV ?? 'development';
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 1000 * 60 * 60 * 8);
+const SESSION_EXTEND_THRESHOLD_MS = Number(process.env.SESSION_EXTEND_THRESHOLD_MS || 1000 * 60 * 30);
+const SESSION_CLEANUP_INTERVAL_MS = Number(process.env.SESSION_CLEANUP_INTERVAL_MS || 1000 * 60 * 15);
 const BOOTSTRAP_AUTH_TOKEN = process.env.BOOTSTRAP_AUTH_TOKEN;
 const TRUST_PROXY = (process.env.TRUST_PROXY ?? 'true') === 'true';
 
-const sessions = new Map();
-
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SESSION_SECRET || !BOOTSTRAP_AUTH_TOKEN) {
-  throw new Error('SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SESSION_SECRET, and BOOTSTRAP_AUTH_TOKEN are required.');
+if (!SESSION_SECRET || !BOOTSTRAP_AUTH_TOKEN) {
+  throw new Error('SESSION_SECRET and BOOTSTRAP_AUTH_TOKEN are required.');
 }
 
 const MIME_TYPES = {
@@ -65,6 +72,8 @@ server.listen(PORT, () => {
   console.log(`Ride to Church listening on http://localhost:${PORT}`);
 });
 
+scheduleExpiredSessionCleanup();
+
 async function handleApi(req, res) {
   const url = new URL(req.url, `https://${req.headers.host}`);
 
@@ -80,7 +89,7 @@ async function handleApi(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
     const session = await resolveSession(req, res);
     if (!session) return;
-    sessions.delete(session.id);
+    await deleteSessionById(session.id);
     return json(res, 200, { ok: true }, {
       'Set-Cookie': clearSessionCookie(),
     });
@@ -213,24 +222,40 @@ async function resolveSession(req, res) {
   }
   return requireSession(req, res);
 }
-function requireSession(req, res) {
+async function requireSession(req, res) {
   const cookieHeader = req.headers.cookie;
   const sessionCookie = parseCookies(cookieHeader).session_id;
   const signature = req.headers['x-session-signature'];
   if (!sessionCookie || !signature || !timingSafeCompare(signSessionId(sessionCookie), signature)) {
-    json(res, 401, { error: 'Authentication required' });
+    json(res, 401, { error: 'Authentication required' }, { 'Set-Cookie': clearSessionCookie() });
     return null;
   }
 
-  const session = sessions.get(sessionCookie);
-  if (!session || Date.now() > session.expiresAt) {
-    sessions.delete(sessionCookie);
+  const session = await fetchSessionById(sessionCookie);
+  const now = Date.now();
+  if (!session || now > Date.parse(session.expires_at)) {
+    await deleteSessionById(sessionCookie);
     json(res, 401, { error: 'Session expired' }, { 'Set-Cookie': clearSessionCookie() });
     return null;
   }
 
-  session.expiresAt = Date.now() + SESSION_TTL_MS;
-  return { ...session, id: sessionCookie };
+  const nextExpiryMs = now + SESSION_TTL_MS;
+  const currentExpiryMs = Date.parse(session.expires_at);
+  if ((currentExpiryMs - now) <= SESSION_EXTEND_THRESHOLD_MS) {
+    extendSessionExpiry({
+      sessionId: sessionCookie,
+      expiresAt: new Date(nextExpiryMs).toISOString(),
+    }).catch((error) => {
+      console.error('Failed to extend session TTL', error);
+    });
+  }
+
+  return {
+    id: session.id,
+    userId: session.user_id,
+    role: session.role,
+    approvalStatus: session.approval_status,
+  };
 }
 
 async function login(res, { bootstrapToken, userId }) {
@@ -247,11 +272,12 @@ async function login(res, { bootstrapToken, userId }) {
   }
 
   const sessionId = crypto.randomUUID();
-  sessions.set(sessionId, {
+  await createSession({
+    id: sessionId,
     userId: user.id,
     role: normalizeRole(user.role),
     approvalStatus: user.approval_status,
-    expiresAt: Date.now() + SESSION_TTL_MS,
+    expiresAt: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
   });
 
   return json(res, 200, {
@@ -265,11 +291,6 @@ async function login(res, { bootstrapToken, userId }) {
   }, {
     'Set-Cookie': buildSessionCookie(sessionId),
   });
-}
-
-async function fetchAuthUser(userId) {
-  const rows = await sbRequest(`/rest/v1/users?id=eq.${userId}&select=id,role,approval_status&limit=1`);
-  return rows[0] ?? null;
 }
 
 async function assignRide(res, rideId, { driverId, actorId, expectedRevision, expectedUpdatedAt }) {
@@ -475,22 +496,16 @@ function pointToCoordinates(value) {
   return { lon: Number(match[1]), lat: Number(match[2]) };
 }
 
-async function sbRequest(endpoint, options = {}) {
-  const response = await fetch(`${SUPABASE_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    throw new Error(data?.message ?? `Supabase request failed (${response.status})`);
-  }
-  return data;
+function scheduleExpiredSessionCleanup() {
+  const runCleanup = () => {
+    deleteExpiredSessions().catch((error) => {
+      console.error('Failed to cleanup expired sessions', error);
+    });
+  };
+
+  runCleanup();
+  const timer = setInterval(runCleanup, SESSION_CLEANUP_INTERVAL_MS);
+  timer.unref?.();
 }
 
 async function serveStatic(req, res) {
