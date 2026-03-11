@@ -138,3 +138,93 @@ export function queueForDriver(driverId, rides, users) {
       return { ...ride, member };
     });
 }
+
+function bumpRideVersion(ride, nowIso = new Date().toISOString()) {
+  ride.updatedAt = nowIso;
+  ride.revision = (ride.revision ?? 0) + 1;
+}
+
+export function assignRideWithVersionCheck({
+  rides,
+  rideId,
+  driverId,
+  expectedRevision,
+  expectedUpdatedAt,
+  nowIso,
+}) {
+  const ride = rides.find((r) => r.id === rideId);
+  if (!ride) return { ok: false, code: 'not_found' };
+  const hasStaleVersion = ride.revision !== expectedRevision
+    || (expectedUpdatedAt && ride.updatedAt !== expectedUpdatedAt);
+  if (hasStaleVersion) {
+    return {
+      ok: false,
+      code: 'stale_ride_version',
+      latestRide: { ...ride },
+    };
+  }
+
+  const movingFrom = ride.driverId;
+  if (movingFrom && movingFrom !== driverId) {
+    rides
+      .filter((r) => r.driverId === movingFrom && r.status === 'assigned' && (r.queueOrder ?? 0) > (ride.queueOrder ?? 0))
+      .forEach((r) => {
+        r.queueOrder -= 1;
+      });
+  }
+
+  const driverQueue = rides
+    .filter((r) => r.driverId === driverId && r.status === 'assigned' && r.id !== rideId)
+    .sort((a, b) => (a.queueOrder ?? 999) - (b.queueOrder ?? 999));
+
+  ride.driverId = driverId;
+  ride.status = 'assigned';
+  ride.queueOrder = driverQueue.length + 1;
+  bumpRideVersion(ride, nowIso);
+
+  return { ok: true, ride: { ...ride } };
+}
+
+export function reorderQueueAtomicallyWithVersionCheck({
+  rides,
+  driverId,
+  rideId,
+  newPosition,
+  expectedRevision,
+  expectedUpdatedAt,
+  nowIso,
+}) {
+  const ride = rides.find((r) => r.id === rideId);
+  if (!ride) return { ok: false, code: 'not_found' };
+  const hasStaleVersion = ride.revision !== expectedRevision
+    || (expectedUpdatedAt && ride.updatedAt !== expectedUpdatedAt);
+  if (hasStaleVersion) {
+    return {
+      ok: false,
+      code: 'stale_ride_version',
+      latestRide: { ...ride },
+    };
+  }
+
+  const queue = rides
+    .filter((r) => r.driverId === driverId && r.status === 'assigned')
+    .sort((a, b) => (a.queueOrder ?? 999) - (b.queueOrder ?? 999));
+  const fromIndex = queue.findIndex((r) => r.id === rideId);
+  if (fromIndex < 0) return { ok: false, code: 'ride_not_in_driver_queue' };
+
+  const [moved] = queue.splice(fromIndex, 1);
+  const targetIndex = Math.max(0, Math.min(Number(newPosition) - 1, queue.length));
+  queue.splice(targetIndex, 0, moved);
+
+  queue.forEach((item, index) => {
+    item.queueOrder = index + 1;
+  });
+
+  bumpRideVersion(ride, nowIso);
+
+  return {
+    ok: true,
+    ride: { ...ride },
+    queue: queue.map((r) => ({ id: r.id, queueOrder: r.queueOrder })),
+  };
+}

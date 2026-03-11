@@ -55,6 +55,18 @@ async function handleApi(req, res) {
     return json(res, 200, await autoAssign(body.actorId ?? null, body.maxRidesPerDriver ?? Infinity));
   }
 
+  const assignMatch = url.pathname.match(/^\/api\/rides\/([^/]+)\/assign$/);
+  if (req.method === 'POST' && assignMatch) {
+    const body = await readJson(req);
+    return assignRide(res, assignMatch[1], body);
+  }
+
+  const reorderMatch = url.pathname.match(/^\/api\/drivers\/([^/]+)\/queue\/reorder$/);
+  if (req.method === 'POST' && reorderMatch) {
+    const body = await readJson(req);
+    return reorderDriverQueue(res, reorderMatch[1], body);
+  }
+
   const queueMatch = url.pathname.match(/^\/api\/drivers\/([^/]+)\/queue$/);
   if (req.method === 'GET' && queueMatch) {
     return json(res, 200, { queue: await fetchDriverQueue(queueMatch[1]) });
@@ -77,13 +89,15 @@ async function fetchUsers() {
 }
 
 async function fetchRides() {
-  const rows = await sbRequest('/rest/v1/rides?select=id,member_id,scheduled_for,pickup_notes,status,ride_assignments(driver_id,queue_position)&order=scheduled_for.asc,created_at.asc');
+  const rows = await sbRequest('/rest/v1/rides?select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,ride_assignments(driver_id,queue_position)&order=scheduled_for.asc,created_at.asc');
   return rows.map((row) => ({
     id: row.id,
     memberId: row.member_id,
     scheduledFor: row.scheduled_for,
     pickupNotes: row.pickup_notes,
     status: row.status,
+    updatedAt: row.updated_at,
+    revision: row.revision,
     driverId: row.ride_assignments?.driver_id ?? null,
     queueOrder: row.ride_assignments?.queue_position ?? null,
   }));
@@ -103,6 +117,84 @@ async function createRide({ memberId, scheduledFor, pickupNotes }) {
     scheduledFor: row.scheduled_for,
     pickupNotes: row.pickup_notes,
     status: row.status,
+    updatedAt: row.updated_at,
+    revision: row.revision,
+  };
+}
+
+async function assignRide(res, rideId, { driverId, actorId, expectedRevision, expectedUpdatedAt }) {
+  if (!driverId || Number.isNaN(Number(expectedRevision))) {
+    return json(res, 400, { error: 'driverId and expectedRevision are required' });
+  }
+
+  const result = await sbRequest('/rest/v1/rpc/assign_ride_transactional', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_ride_id: rideId,
+      p_driver_id: driverId,
+      p_actor_id: actorId ?? null,
+      p_expected_revision: Number(expectedRevision),
+      p_expected_updated_at: expectedUpdatedAt ?? null,
+    }),
+  });
+
+  const row = result[0];
+  if (row?.conflict) {
+    return json(res, 409, {
+      error: 'Ride was updated by another dispatcher. Please refresh and retry.',
+      code: row.conflict_reason,
+      latestRide: await fetchRideById(rideId),
+      rides: await fetchRides(),
+    });
+  }
+
+  return json(res, 200, { ride: await fetchRideById(rideId), rides: await fetchRides() });
+}
+
+async function reorderDriverQueue(res, driverId, { rideId, newPosition, actorId, expectedRevision, expectedUpdatedAt }) {
+  if (!rideId || Number.isNaN(Number(newPosition)) || Number.isNaN(Number(expectedRevision))) {
+    return json(res, 400, { error: 'rideId, newPosition, and expectedRevision are required' });
+  }
+
+  const result = await sbRequest('/rest/v1/rpc/reorder_driver_queue_transactional', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_driver_id: driverId,
+      p_ride_id: rideId,
+      p_new_position: Number(newPosition),
+      p_actor_id: actorId ?? null,
+      p_expected_revision: Number(expectedRevision),
+      p_expected_updated_at: expectedUpdatedAt ?? null,
+    }),
+  });
+
+  const row = result[0];
+  if (row?.conflict) {
+    return json(res, 409, {
+      error: 'Queue changed before your move was applied. Board was refreshed.',
+      code: row.conflict_reason,
+      latestRide: await fetchRideById(rideId),
+      rides: await fetchRides(),
+    });
+  }
+
+  return json(res, 200, { rides: await fetchRides(), queue: await fetchDriverQueue(driverId) });
+}
+
+async function fetchRideById(rideId) {
+  const rows = await sbRequest(`/rest/v1/rides?id=eq.${rideId}&select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,ride_assignments(driver_id,queue_position)&limit=1`);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    memberId: row.member_id,
+    scheduledFor: row.scheduled_for,
+    pickupNotes: row.pickup_notes,
+    status: row.status,
+    updatedAt: row.updated_at,
+    revision: row.revision,
+    driverId: row.ride_assignments?.driver_id ?? null,
+    queueOrder: row.ride_assignments?.queue_position ?? null,
   };
 }
 

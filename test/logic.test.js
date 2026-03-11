@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  assignRideWithVersionCheck,
   autoAssignRides,
   autoAssignRidesWithEvents,
   haversineDistanceKm,
   queueForDriver,
+  reorderQueueAtomicallyWithVersionCheck,
 } from '../logic.js';
 
 test('haversineDistanceKm returns 0 for identical points', () => {
@@ -84,4 +86,76 @@ test('autoAssignRidesWithEvents emits assignment and status events', () => {
     'ride.status_changed',
     'ride.driver_eta_10m',
   ]);
+});
+
+test('rejects stale assignment when two dispatchers assign same ride concurrently', () => {
+  const rides = [{
+    id: 'r1',
+    status: 'requested',
+    revision: 4,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    queueOrder: null,
+    driverId: null,
+  }];
+
+  const first = assignRideWithVersionCheck({
+    rides,
+    rideId: 'r1',
+    driverId: 'd1',
+    expectedRevision: 4,
+    expectedUpdatedAt: '2026-01-01T00:00:00.000Z',
+    nowIso: '2026-01-01T00:01:00.000Z',
+  });
+  assert.equal(first.ok, true);
+
+  const second = assignRideWithVersionCheck({
+    rides,
+    rideId: 'r1',
+    driverId: 'd2',
+    expectedRevision: 4,
+    expectedUpdatedAt: '2026-01-01T00:00:00.000Z',
+    nowIso: '2026-01-01T00:02:00.000Z',
+  });
+
+  assert.equal(second.ok, false);
+  assert.equal(second.code, 'stale_ride_version');
+  assert.equal(second.latestRide.driverId, 'd1');
+});
+
+test('atomic reorder updates all positions and rejects stale concurrent reorder', () => {
+  const rides = [
+    { id: 'r1', driverId: 'd1', status: 'assigned', queueOrder: 1, revision: 7, updatedAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'r2', driverId: 'd1', status: 'assigned', queueOrder: 2, revision: 1, updatedAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'r3', driverId: 'd1', status: 'assigned', queueOrder: 3, revision: 1, updatedAt: '2026-01-01T00:00:00.000Z' },
+  ];
+
+  const first = reorderQueueAtomicallyWithVersionCheck({
+    rides,
+    driverId: 'd1',
+    rideId: 'r1',
+    newPosition: 3,
+    expectedRevision: 7,
+    expectedUpdatedAt: '2026-01-01T00:00:00.000Z',
+    nowIso: '2026-01-01T00:01:00.000Z',
+  });
+
+  assert.equal(first.ok, true);
+  assert.deepEqual(first.queue, [
+    { id: 'r2', queueOrder: 1 },
+    { id: 'r3', queueOrder: 2 },
+    { id: 'r1', queueOrder: 3 },
+  ]);
+
+  const second = reorderQueueAtomicallyWithVersionCheck({
+    rides,
+    driverId: 'd1',
+    rideId: 'r1',
+    newPosition: 1,
+    expectedRevision: 7,
+    expectedUpdatedAt: '2026-01-01T00:00:00.000Z',
+    nowIso: '2026-01-01T00:02:00.000Z',
+  });
+
+  assert.equal(second.ok, false);
+  assert.equal(second.code, 'stale_ride_version');
 });
