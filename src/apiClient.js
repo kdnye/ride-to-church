@@ -1,8 +1,18 @@
 const API_BASE = '/api';
+const SESSION_SIGNATURE_KEY = 'rtc-session-signature';
+
+function sessionSignature() {
+  return window.localStorage.getItem(SESSION_SIGNATURE_KEY);
+}
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(sessionSignature() ? { 'x-session-signature': sessionSignature() } : {}),
+      ...(options.headers ?? {}),
+    },
     ...options,
   });
 
@@ -17,6 +27,20 @@ async function request(path, options = {}) {
 }
 
 export const apiClient = {
+  async login(input) {
+    const response = await request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+    if (response.sessionSignature) {
+      window.localStorage.setItem(SESSION_SIGNATURE_KEY, response.sessionSignature);
+    }
+    return response;
+  },
+  async logout() {
+    await request('/auth/logout', { method: 'POST' });
+    window.localStorage.removeItem(SESSION_SIGNATURE_KEY);
+  },
   async getUsers() {
     const { users } = await request('/users');
     return users;

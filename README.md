@@ -1,12 +1,31 @@
 ## Ride to Church (Supabase-backed MVP)
 
-This app now runs as a lightweight Node server that serves the frontend and exposes a backend API layer for users/rides/assignments backed by Supabase Postgres.
+Production-oriented Node server for dispatch + notifications. This service is designed for **managed hosting with TLS termination at the edge** and enforces HTTPS + secure defaults in production.
 
 ### Environment variables
 
-- `SUPABASE_URL`: Your project URL (e.g. `https://xyzcompany.supabase.co`)
-- `SUPABASE_SERVICE_ROLE_KEY`: Service role key used by the backend API layer
-- `PORT` (optional): defaults to `4173`
+Required in production:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SESSION_SECRET` (HMAC signing key for session integrity)
+- `BOOTSTRAP_AUTH_TOKEN` (bootstrap login secret used only server-side)
+- `NODE_ENV=production`
+
+Optional:
+
+- `PORT` (defaults to `4173`)
+- `SESSION_TTL_MS` (defaults to 8 hours)
+- `TRUST_PROXY=true` (default; trust `x-forwarded-proto` from managed edge)
+
+Notifications (server-side secret storage only):
+
+- `POSTMARK_API_TOKEN`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_FROM_NUMBER`
+
+> Never expose these values to browser bundles. Configure them in managed host secret storage (e.g., Render/Fly/Railway encrypted environment variables or secret manager integrations).
 
 ### Run locally
 
@@ -14,16 +33,36 @@ This app now runs as a lightweight Node server that serves the frontend and expo
 npm start
 ```
 
-### Database migrations
+### Production start / deployment targets
 
-Run these in order inside Supabase SQL editor (or your migration runner):
+```bash
+npm run start:prod
+npm run deploy:managed
+npm run deploy:tls
+```
 
-1. `migrations/001_init_schema.sql`
-2. `migrations/002_indexes.sql`
-3. `migrations/003_dispatch_concurrency.sql`
+- Managed hosting should terminate TLS at the edge and forward traffic over trusted internal links.
+- Application enforces HTTPS in production (redirects non-HTTPS requests) and returns hardened security headers.
+
+### Security controls implemented
+
+- HTTPS-only behavior in production (`308` redirect to `https://...` when request is not secure).
+- Secure headers on static + API responses:
+  - `Strict-Transport-Security`
+  - `Content-Security-Policy`
+  - `X-Frame-Options: DENY`
+  - `X-Content-Type-Options: nosniff`
+  - `Referrer-Policy: no-referrer`
+  - `Permissions-Policy`
+  - `Cache-Control: no-store`
+- Server-managed session cookies (`HttpOnly`, `Secure`, `SameSite=Strict`) for authenticated API access.
+- Server-side RBAC checks for privileged operations (dispatch/admin actions).
 
 ### API surface (backend data-access layer)
 
+- `GET /api/health`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
 - `GET /api/users`
 - `GET /api/rides`
 - `POST /api/rides`
@@ -32,4 +71,48 @@ Run these in order inside Supabase SQL editor (or your migration runner):
 - `POST /api/rides/:rideId/assign` (optimistic concurrency via revision/updatedAt)
 - `POST /api/drivers/:driverId/queue/reorder` (atomic queue reorder + concurrency checks)
 
-The frontend consumes these endpoints through `src/apiClient.js` and uses optimistic updates with rollback for request creation + auto-assign.
+### Database migrations
+
+Run in order:
+
+1. `migrations/001_init_schema.sql`
+2. `migrations/002_indexes.sql`
+3. `migrations/003_dispatch_concurrency.sql`
+4. `migrations/004_queue_optimizer_inputs.sql`
+
+## Production runbook
+
+### 1) Certificates & TLS termination
+
+1. Use managed hosting edge certificates (ACME-managed auto-renew preferred).
+2. Enforce HTTPS redirect at edge and application layer.
+3. Keep HSTS enabled (`max-age=31536000; includeSubDomains; preload`) only after verifying HTTPS coverage for all subdomains.
+4. Validate with:
+   - SSL Labs scan
+   - `curl -I http://<domain>` returns redirect to HTTPS
+   - `curl -I https://<domain>` returns HSTS header
+
+### 2) Secret rotation policy
+
+- Rotate `SESSION_SECRET`, `BOOTSTRAP_AUTH_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTMARK_API_TOKEN`, and Twilio credentials every 90 days (or sooner after incidents).
+- Rotation workflow:
+  1. Create new secret version in host secret manager.
+  2. Deploy with dual-read where possible (if supported).
+  3. Invalidate previous value.
+  4. Confirm app health + notification send path.
+  5. Record rotation metadata (who/when/ticket).
+
+### 3) PII incident response
+
+1. **Detect**: trigger alert on suspicious access patterns, auth failures, or anomalous exports.
+2. **Contain**: revoke leaked keys/secrets immediately; block compromised sessions.
+3. **Eradicate**: patch root cause, redeploy hardened config.
+4. **Recover**: validate data integrity and re-enable traffic progressively.
+5. **Notify**: execute legal/regulatory notification flow per jurisdiction.
+6. **Review**: complete post-incident RCA and update controls/runbook.
+
+### 4) Logging and audit expectations
+
+- Log authentication failures, role authorization failures, and privileged writes.
+- Avoid logging raw PII/secrets in application logs.
+- Retain security/audit logs according to compliance requirements.
