@@ -2,6 +2,13 @@
 
 Production-oriented Node server for dispatch + notifications. This service is designed for **managed hosting with TLS termination at the edge** and enforces HTTPS + secure defaults in production.
 
+> Email delivery is Postmark-first. Configure and operate all email notification flows through Postmark credentials and templates.
+
+## Documentation map
+
+- **Architecture + function reference:** `docs/ARCHITECTURE.md`
+- **Tiered user help guide:** `docs/HELP_GUIDE.md`
+
 ### Environment variables
 
 Required in production:
@@ -69,6 +76,7 @@ npm run deploy:tls
 - `POST /api/rides/auto-assign`
 - `GET /api/drivers/:driverId/queue`
 - `POST /api/rides/:rideId/assign` (optimistic concurrency via revision/updatedAt)
+- `POST /api/rides/:rideId/cancel`
 - `POST /api/drivers/:driverId/queue/reorder` (atomic queue reorder + concurrency checks)
 
 ### Database migrations
