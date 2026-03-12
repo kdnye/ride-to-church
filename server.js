@@ -780,18 +780,35 @@ function pointToCoordinates(value) {
 
   // --- Phase 1: Extraction ---
   if (typeof value === 'string') {
-    const match = value.match(/POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)/i);
-    if (match) {
-      lon = match[1];
-      lat = match[2];
+    const str = value.trim();
+    
+    // NEW: Check for PostGIS Binary Hex String (50 chars for a 2D Point)
+    if (/^[0-9A-Fa-f]{50}$/.test(str)) {
+      try {
+        const buffer = Buffer.from(str, 'hex');
+        const isLittleEndian = buffer[0] === 1;
+        // Float values are 8 bytes long. Lon starts at byte 9, Lat starts at byte 17
+        lon = isLittleEndian ? buffer.readDoubleLE(9) : buffer.readDoubleBE(9);
+        lat = isLittleEndian ? buffer.readDoubleLE(17) : buffer.readDoubleBE(17);
+      } catch (e) {
+        console.error("Failed to parse Hex coordinates:", e);
+      }
+    } 
+    // Legacy WKT string fallback
+    else {
+      const match = str.match(/POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)/i);
+      if (match) {
+        lon = match[1];
+        lat = match[2];
+      }
     }
   } 
   else if (typeof value === 'object' && value !== null) {
     if (value.type === 'Point' && Array.isArray(value.coordinates)) {
-      // GeoJSON Point: { type: 'Point', coordinates: [lon, lat] }
+      // GeoJSON Point
       [lon, lat] = value.coordinates;
     } else if ('lat' in value && 'lon' in value) {
-      // Plain object: { lat, lon }
+      // Plain object
       lat = value.lat;
       lon = value.lon;
     }
