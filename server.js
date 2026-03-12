@@ -270,30 +270,40 @@ async function fetchRides() {
   // Added ::text to the embedded member coordinates selection
   const rows = await sbRequest('/rest/v1/rides?select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position,travel_time_seconds,estimated_arrival_time,route_polyline),member:users!rides_member_id_fkey(id,full_name,coordinates::text)&order=scheduled_for.asc');
 
-  return rows.map((row) => ({
-    id: row.id,
-    memberId: row.member_id,
-    scheduledFor: row.scheduled_for,
-    pickupNotes: row.pickup_notes,
-    status: row.status,
-    updatedAt: row.updated_at,
-    revision: row.revision,
-    wheelchairPickupBufferMinutes: row.wheelchair_pickup_buffer_minutes ?? 0,
-    pickupWindowStart: row.pickup_window_start ?? null,
-    pickupWindowEnd: row.pickup_window_end ?? null,
-    
-    driverId: row.ride_assignments?.[0]?.driver_id ?? null,
-    queueOrder: row.ride_assignments?.[0]?.queue_position ?? null,
-    travelTimeSeconds: row.ride_assignments?.[0]?.travel_time_seconds ?? null,
-    estimatedArrival: row.ride_assignments?.[0]?.estimated_arrival_time ?? null,
-    routePolyline: row.ride_assignments?.[0]?.route_polyline ?? null,
-    
-    member: {
-      id: row.member?.id,
-      fullName: row.member?.full_name,
-      coordinates: pointToCoordinates(row.member?.coordinates),
-    },
-  }));
+  return rows.map((row) => {
+    const assignment = pickRideAssignment(row.ride_assignments);
+
+    return {
+      id: row.id,
+      memberId: row.member_id,
+      scheduledFor: row.scheduled_for,
+      pickupNotes: row.pickup_notes,
+      status: row.status,
+      updatedAt: row.updated_at,
+      revision: row.revision,
+      wheelchairPickupBufferMinutes: row.wheelchair_pickup_buffer_minutes ?? 0,
+      pickupWindowStart: row.pickup_window_start ?? null,
+      pickupWindowEnd: row.pickup_window_end ?? null,
+
+      driverId: assignment?.driver_id ?? null,
+      queueOrder: assignment?.queue_position ?? null,
+      travelTimeSeconds: assignment?.travel_time_seconds ?? null,
+      estimatedArrival: assignment?.estimated_arrival_time ?? null,
+      routePolyline: assignment?.route_polyline ?? null,
+
+      member: {
+        id: row.member?.id,
+        fullName: row.member?.full_name,
+        coordinates: pointToCoordinates(row.member?.coordinates),
+      },
+    };
+  });
+}
+
+function pickRideAssignment(assignmentData) {
+  if (!assignmentData) return null;
+  if (Array.isArray(assignmentData)) return assignmentData[0] ?? null;
+  return assignmentData;
 }
 
 async function fetchDestinations() {
@@ -588,6 +598,7 @@ async function fetchRideById(rideId) {
   const rows = await sbRequest(`/rest/v1/rides?id=eq.${rideId}&select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position,travel_time_seconds,estimated_arrival_time,route_polyline)&limit=1`);
   const row = rows[0];
   if (!row) return null;
+  const assignment = pickRideAssignment(row.ride_assignments);
   return {
     id: row.id,
     memberId: row.member_id,
@@ -599,11 +610,11 @@ async function fetchRideById(rideId) {
     wheelchairPickupBufferMinutes: row.wheelchair_pickup_buffer_minutes ?? 0,
     pickupWindowStart: row.pickup_window_start ?? null,
     pickupWindowEnd: row.pickup_window_end ?? null,
-    driverId: row.ride_assignments?.driver_id ?? null,
-    queueOrder: row.ride_assignments?.queue_position ?? null,
-    travelTimeSeconds: row.ride_assignments?.travel_time_seconds ?? null,
-    estimatedArrival: row.ride_assignments?.estimated_arrival_time ?? null,
-    routePolyline: row.ride_assignments?.route_polyline ?? null,
+    driverId: assignment?.driver_id ?? null,
+    queueOrder: assignment?.queue_position ?? null,
+    travelTimeSeconds: assignment?.travel_time_seconds ?? null,
+    estimatedArrival: assignment?.estimated_arrival_time ?? null,
+    routePolyline: assignment?.route_polyline ?? null,
   };
 }
 
