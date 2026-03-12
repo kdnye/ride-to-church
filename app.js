@@ -823,17 +823,12 @@ async function renderDriverQueue() {
   const driverId = driverSelect.value;
   if (!driverId) {
     driverQueue.innerHTML = '<li class="muted">No approved drivers available.</li>';
+    await renderDriverMap();
     return;
   }
 
   try {
     const queue = await apiClient.getDriverQueue(driverId);
-    if (!Array.isArray(queue) || queue.length === 0) {
-      driverQueue.innerHTML = '<li class="muted">No active stops for this driver.</li>';
-      await renderDriverMap(driverId);
-      return;
-    }
-
     driverQueue.innerHTML = queue
       .map((item) => {
         const coordinates = normalizeCoordinates(item?.member?.coordinates);
@@ -846,36 +841,53 @@ async function renderDriverQueue() {
         return `<li><span class="badge">Stop ${item.queueOrder}</span> <strong>${escapeHtml(item?.member?.fullName || 'Unknown member')}</strong> — ${escapeHtml(item.pickupNotes) || 'No notes'}${navLink}</li>`;
       })
       .join('') || '<li class="muted">No active stops for this driver.</li>';
-    await renderDriverMap(driverId, queue);
+
+    await renderDriverMap();
   } catch (error) {
     driverQueue.innerHTML = `<li class="muted">Failed to load queue: ${error.message}</li>`;
-    await renderDriverMap(driverId);
+    await renderDriverMap();
   }
 }
 
-async function renderDriverMap(driverId, prefetchedQueue = null) {
+async function renderDriverMap() {
   const map = await initMap('driver-map', 'driverMap');
   if (!map || !window.google?.maps) return;
 
   clearMap('driver');
 
+  const driverId = document.querySelector('#driver-select')?.value;
   if (!driverId) return;
 
-  let queue = prefetchedQueue;
-  if (!Array.isArray(queue)) {
-    try {
-      queue = await apiClient.getDriverQueue(driverId);
-    } catch {
-      return;
-    }
+  let queue;
+  try {
+    queue = await apiClient.getDriverQueue(driverId);
+  } catch {
+    return;
   }
 
   if (!Array.isArray(queue) || queue.length === 0) return;
 
   const bounds = new google.maps.LatLngBounds();
-  for (const item of queue) {
+  const pathCoordinates = [];
+
+  const driver = state.users.find((user) => user.id === driverId);
+  const driverCoordinates = normalizeCoordinates(driver?.coordinates);
+  if (driverCoordinates) {
+    const startPos = { lat: driverCoordinates.lat, lng: driverCoordinates.lon };
+    const startMarker = new google.maps.Marker({
+      position: startPos,
+      map,
+      title: 'Driver Start',
+      icon: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+    });
+    mapState.markers.driver.push(startMarker);
+    bounds.extend(startPos);
+    pathCoordinates.push(startPos);
+  }
+
+  queue.forEach((item) => {
     const coordinates = normalizeCoordinates(item?.member?.coordinates);
-    if (!coordinates) continue;
+    if (!coordinates) return;
 
     const position = { lat: coordinates.lat, lng: coordinates.lon };
     const marker = new google.maps.Marker({
@@ -884,18 +896,20 @@ async function renderDriverMap(driverId, prefetchedQueue = null) {
       label: String(item?.queueOrder ?? ''),
       title: item?.member?.fullName || 'Unknown member',
     });
+
     const infoWindow = new google.maps.InfoWindow({
       content: `<strong>Stop ${escapeHtml(item?.queueOrder ?? '-')}: ${escapeHtml(item?.member?.fullName || 'Unknown member')}</strong><br/>${escapeHtml(item?.pickupNotes) || 'No notes'}`,
     });
-    marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
+    marker.addListener('click', () => infoWindow.open(map, marker));
+
     mapState.markers.driver.push(marker);
     bounds.extend(position);
 
     if (typeof item.routePolyline === 'string' && window.google?.maps?.geometry?.encoding) {
-      const path = google.maps.geometry.encoding.decodePath(item.routePolyline);
-      if (path.length > 1) {
+      const decodedPath = google.maps.geometry.encoding.decodePath(item.routePolyline);
+      if (decodedPath.length > 1) {
         const polyline = new google.maps.Polyline({
-          path,
+          path: decodedPath,
           geodesic: true,
           strokeColor: '#0b3a75',
           strokeOpacity: 0.8,
@@ -903,16 +917,36 @@ async function renderDriverMap(driverId, prefetchedQueue = null) {
           map,
         });
         mapState.polylines.driver.push(polyline);
-
-        path.forEach((point) => bounds.extend(point));
+        decodedPath.forEach((point) => bounds.extend(point));
+      } else {
+        pathCoordinates.push(position);
       }
+    } else {
+      pathCoordinates.push(position);
     }
+  });
+
+  if (pathCoordinates.length > 1 && mapState.polylines.driver.length === 0) {
+    const fallbackPolyline = new google.maps.Polyline({
+      path: pathCoordinates,
+      geodesic: true,
+      strokeColor: '#5f6e85',
+      strokeOpacity: 0.8,
+      strokeWeight: 3,
+      map,
+      icons: [{
+        icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW },
+        offset: '50%',
+        repeat: '100px',
+      }],
+    });
+    mapState.polylines.driver.push(fallbackPolyline);
   }
 
   if (!bounds.isEmpty()) {
     map.fitBounds(bounds);
     const zoom = map.getZoom();
-    if (zoom > 16) map.setZoom(16);
+    map.setZoom(zoom > 16 ? 16 : zoom);
   }
 }
 
