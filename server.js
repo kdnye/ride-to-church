@@ -559,7 +559,13 @@ async function updateUser(res, targetUserId, body) {
   return json(res, 200, { ok: true });
 }
 
-async function assignRide(res, rideId, { driverId, actorId, expectedRevision, expectedUpdatedAt }) {
+async function assignRide(res, rideId, {
+  driverId,
+  actorId,
+  expectedRevision,
+  expectedUpdatedAt,
+  allowCapacityOverride,
+}) {
   if (!driverId || Number.isNaN(Number(expectedRevision))) {
     return json(res, 400, { error: 'driverId and expectedRevision are required' });
   }
@@ -575,6 +581,7 @@ async function assignRide(res, rideId, { driverId, actorId, expectedRevision, ex
       p_max_rides_per_driver: MAX_RIDES_PER_DRIVER,
       p_expected_revision: Number(expectedRevision),
       p_expected_updated_at: expectedUpdatedAt ?? null,
+      p_ignore_driver_capacity: Boolean(allowCapacityOverride),
     }),
   });
 

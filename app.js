@@ -689,7 +689,10 @@ function renderBoard() {
           .map((d) => `${escapeHtml(d.fullName)} (${d.distanceKm.toFixed(1)}km)`)
           .join(', ')
         : '';
-      return `<li><strong>${escapeHtml(member?.fullName ?? 'Unknown member')}</strong> - ${r.scheduledFor}<br/><span class="muted">Closest approved drivers: ${nearest || 'none'}</span></li>`;
+      const driverOptions = approvedDrivers
+        .map((driver) => `<option value="${driver.id}">${escapeHtml(driver.fullName)}</option>`)
+        .join('');
+      return `<li><strong>${escapeHtml(member?.fullName ?? 'Unknown member')}</strong> - ${r.scheduledFor}<br/><span class="muted">Closest approved drivers: ${nearest || 'none'}</span><br/><label style="margin-top:0.5rem;">Assign to driver <select id="assign-driver-${r.id}">${driverOptions}</select></label><br/><label class="muted" style="font-size:0.85em;"><input id="assign-override-${r.id}" type="checkbox" /> Allow over driver limit</label><br/><button type="button" onclick="window.manualAssignRide('${r.id}')" style="margin-top:0.5rem; width:auto;">Assign Ride</button></li>`;
     })
     .join('') || '<li class="muted">No requested rides.</li>';
 
@@ -699,7 +702,10 @@ function renderBoard() {
     .map((r) => {
       const member = state.users.find((u) => u.id === r.memberId);
       const driver = state.users.find((u) => u.id === r.driverId);
-      return `<li><span class="badge">Assigned</span> ${escapeHtml(member?.fullName ?? 'Unknown')} → ${escapeHtml(driver?.fullName ?? 'Unassigned')} (Stop ${r.queueOrder ?? '-'})</li>`;
+      const driverOptions = approvedDrivers
+        .map((candidate) => `<option value="${candidate.id}" ${candidate.id === r.driverId ? 'selected' : ''}>${escapeHtml(candidate.fullName)}</option>`)
+        .join('');
+      return `<li><span class="badge">Assigned</span> ${escapeHtml(member?.fullName ?? 'Unknown')} → ${escapeHtml(driver?.fullName ?? 'Unassigned')} (Stop ${r.queueOrder ?? '-'})<br/><label style="margin-top:0.5rem;">Change driver <select id="assign-driver-${r.id}">${driverOptions}</select></label><br/><label class="muted" style="font-size:0.85em;"><input id="assign-override-${r.id}" type="checkbox" /> Allow over driver limit</label><br/><button type="button" onclick="window.manualAssignRide('${r.id}')" style="margin-top:0.5rem; width:auto;">Update Assignment</button></li>`;
     })
     .join('') || '<li class="muted">No assigned rides.</li>';
 
@@ -881,6 +887,48 @@ async function renderDriverQueue() {
     await renderDriverMap();
   }
 }
+
+window.manualAssignRide = async (rideId) => {
+  const actor = currentActor();
+  if (!actor || !canDispatch(actor)) {
+    assignResult.textContent = 'Unauthorized to manually assign rides.';
+    return;
+  }
+
+  const ride = state.rides.find((item) => item.id === rideId);
+  if (!ride) {
+    assignResult.textContent = 'Unable to update assignment: ride not found.';
+    return;
+  }
+
+  const driverSelectEl = document.querySelector(`#assign-driver-${rideId}`);
+  const overrideEl = document.querySelector(`#assign-override-${rideId}`);
+  const selectedDriverId = driverSelectEl?.value;
+  if (!selectedDriverId) {
+    assignResult.textContent = 'Please choose a driver.';
+    return;
+  }
+
+  assignResult.textContent = ride.status === 'assigned' ? 'Updating assignment...' : 'Assigning ride...';
+
+  try {
+    const response = await apiClient.assignRide(rideId, {
+      driverId: selectedDriverId,
+      expectedRevision: ride.revision,
+      expectedUpdatedAt: ride.updatedAt,
+      allowCapacityOverride: Boolean(overrideEl?.checked),
+    });
+    state.rides = response.rides ?? state.rides;
+    assignResult.textContent = ride.status === 'assigned'
+      ? 'Ride assignment updated.'
+      : 'Ride assigned.';
+    refreshAll();
+  } catch (error) {
+    state.rides = error.details?.rides ?? state.rides;
+    assignResult.textContent = `Failed to assign ride: ${error.message}`;
+    refreshAll();
+  }
+};
 
 window.completeStop = async (rideId) => {
   const actor = currentActor();
