@@ -10,6 +10,7 @@ import { canAccessDriverQueue } from './src/authz.js';
 import { getRouteMatrixDurationsSeconds } from './src/services/routing/googleRoutesMatrix.js';
 import { buildTravelTimeLookup } from './src/services/routing/travelTimeCache.js';
 import { buildMemberDriverTravelTimes as buildMemberDriverTravelTimesFromMatrix } from './src/services/routing/memberDriverTravelTimes.js';
+import { buildUserUpdates } from './src/adminUserUpdates.js';
 import {
   createSession,
   deleteExpiredSessions,
@@ -57,9 +58,6 @@ const MAX_RIDES_PER_DRIVER = readPositiveIntEnv('MAX_RIDES_PER_DRIVER', POSTGRES
 if (!SESSION_SECRET) {
   throw new Error('SESSION_SECRET is required.');
 }
-
-const VALID_USER_ROLES = new Set(['member', 'volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin']);
-const VALID_APPROVAL_STATUSES = new Set(['pending', 'approved', 'rejected', 'deactivated']);
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -252,7 +250,7 @@ async function handleApi(req, res) {
 
 async function fetchUsers() {
   // Added ::text to the coordinates selection
-  const rows = await sbRequest('/rest/v1/users?select=id,full_name,email,role,approval_status,approved_by,approved_at,coordinates::text&order=full_name.asc');
+  const rows = await sbRequest('/rest/v1/users?select=id,full_name,email,role,approval_status,approved_by,approved_at,daily_ride_capacity,coordinates::text&order=full_name.asc');
   return rows.map((row) => ({
     id: row.id,
     fullName: row.full_name,
@@ -262,6 +260,8 @@ async function fetchUsers() {
     approval_status: row.approval_status ?? row.approvalStatus ?? null,
     approved_by: row.approved_by,
     approved_at: row.approved_at,
+    dailyRideCapacity: row.daily_ride_capacity ?? null,
+    daily_ride_capacity: row.daily_ride_capacity ?? null,
     coordinates: pointToCoordinates(row.coordinates),
   }));
 }
@@ -499,25 +499,10 @@ async function registerUser(res, { fullName, email, password, phone }) {
   }
 }
 
-async function updateUser(res, targetUserId, { role, approval_status }) {
-  const updates = {};
-
-  if (role !== undefined) {
-    if (!VALID_USER_ROLES.has(role)) {
-      return json(res, 400, { error: 'Invalid role value' });
-    }
-    updates.role = role;
-  }
-
-  if (approval_status !== undefined) {
-    if (!VALID_APPROVAL_STATUSES.has(approval_status)) {
-      return json(res, 400, { error: 'Invalid approval_status value' });
-    }
-    updates.approval_status = approval_status;
-  }
-
-  if (!Object.keys(updates).length) {
-    return json(res, 400, { error: 'At least one update field is required' });
+async function updateUser(res, targetUserId, body) {
+  const { updates, error } = buildUserUpdates(body);
+  if (error) {
+    return json(res, 400, { error });
   }
 
   await sbRequest(`/rest/v1/users?id=eq.${targetUserId}`, {
