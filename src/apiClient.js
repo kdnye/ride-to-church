@@ -99,14 +99,11 @@ export const apiClient = {
       throw error;
     }
   },
-  async autoAssign: async (payload) => {
-    const res = await fetch('/api/rides/auto-assign', {
+  async autoAssign(payload) {
+    return request('/rides/auto-assign', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload), // <-- THIS IS CRITICAL!
+      body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(await res.text());
-    return await res.json();
   },
 
   async assignRide(rideId, input) {
