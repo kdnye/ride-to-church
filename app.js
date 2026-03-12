@@ -132,7 +132,7 @@ async function boot() {
   if (pickupDate) pickupDate.value = nextSunday();
   
   safeAddListener('#request-form', 'submit', onCreateRideRequest);
-  safeAddListener('#auto-assign-btn', 'click', onAutoAssign);
+  safeAddListener('#auto-assign-btn', 'click', ign);
   safeAddListener('#driver-select', 'change', renderDriverQueue);
   safeAddListener('#save-settings-btn', 'click', onSaveSettings);
   safeAddListener('#send-broadcast-btn', 'click', onSendBroadcast);
@@ -435,6 +435,8 @@ async function onAutoAssign() {
 
   const before = snapshot(state.rides);
   const optimistic = snapshot(state.rides);
+  
+  // Predict the assignments locally for immediate UI feedback
   const assignments = autoAssignRides({
     rides: optimistic,
     users: state.users,
@@ -449,14 +451,17 @@ async function onAutoAssign() {
   if (!assignments.length) return;
 
   try {
+    // FIX: Look up the destination by ID, and gracefully fallback to null if nothing is selected
     const destinationId = document.querySelector('#dispatch-destination')?.value;
-    const destinationCoordinates = state.destinations.find((destination) => destination.id === destinationId)?.coordinates ?? null;
+    const destinationCoordinates = state.destinations.find(d => d.id === destinationId)?.coordinates || null;
 
+    // Send it to the backend!
     const response = await apiClient.autoAssign({
       actorId: currentActor().id,
       maxRidesPerDriver: state.settings.maxRidesPerDriver,
-      destinationCoordinates,
+      destinationCoordinates: destinationCoordinates 
     });
+    
     state.rides = response.rides;
     assignResult.textContent = `Assigned ${response.assignments.length} ride(s).`;
   } catch (error) {
