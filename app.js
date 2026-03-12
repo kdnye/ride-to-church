@@ -667,7 +667,6 @@ function renderAdminPanel() {
   
   if (!actor || !canManageUsers(actor)) {
     if (listEl) listEl.innerHTML = '';
-    // FIXED: Corrected the variable name typo here!
     if (destinationListEl) destinationListEl.innerHTML = '';
     if (destinationFeedbackEl) destinationFeedbackEl.textContent = '';
     return;
@@ -736,14 +735,14 @@ function writeAudit({ type, actorId, before, after, metadata = {} }) {
 
 // --- BULLETPROOF HTML ESCAPE ---
 function escapeHtml(value) {
-  if (value === null || value === undefined) return '';
-  let escaped = String(value);
-  escaped = escaped.split('&').join('&amp;');
-  escaped = escaped.split('<').join('&lt;');
-  escaped = escaped.split('>').join('&gt;');
-  escaped = escaped.split('"').join('&quot;');
-  escaped = escaped.split("'").join('&#39;');
-  return escaped;
+  if (value === null || value === undefined) return "";
+
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function currentActor() { return state.currentUser; }
