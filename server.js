@@ -572,18 +572,20 @@ async function assignRide(res, rideId, {
 
   const previousRide = await fetchRideById(rideId);
 
-  const result = await sbRequest('/rest/v1/rpc/assign_ride_transactional', {
-    method: 'POST',
-    body: JSON.stringify({
-      p_ride_id: rideId,
-      p_driver_id: driverId,
-      p_actor_id: actorId ?? null,
-      p_max_rides_per_driver: MAX_RIDES_PER_DRIVER,
-      p_expected_revision: Number(expectedRevision),
-      p_expected_updated_at: expectedUpdatedAt ?? null,
-      p_ignore_driver_capacity: Boolean(allowCapacityOverride),
-    }),
-  });
+  const assignRidePayload = {
+    p_ride_id: rideId,
+    p_driver_id: driverId,
+    p_actor_id: actorId ?? null,
+    p_max_rides_per_driver: MAX_RIDES_PER_DRIVER,
+    p_expected_revision: Number(expectedRevision),
+    p_expected_updated_at: expectedUpdatedAt ?? null,
+  };
+
+  if (Boolean(allowCapacityOverride)) {
+    assignRidePayload.p_ignore_driver_capacity = true;
+  }
+
+  const result = await requestAssignRideTransactional(assignRidePayload);
 
   const row = result[0];
   if (row?.conflict) {
@@ -602,6 +604,32 @@ async function assignRide(res, rideId, {
   await optimizeAndPersistDriverQueues([previousRide?.driverId, latestRide?.driverId]);
 
   return json(res, 200, { ride: await fetchRideById(rideId), rides: await fetchRides() });
+}
+
+async function requestAssignRideTransactional(payload) {
+  try {
+    return await sbRequest('/rest/v1/rpc/assign_ride_transactional', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    const message = String(error?.message ?? '');
+    const missingCapacityOverrideParam =
+      payload.p_ignore_driver_capacity === true
+      && message.includes('PGRST202')
+      && message.includes('p_ignore_driver_capacity');
+
+    if (!missingCapacityOverrideParam) {
+      throw error;
+    }
+
+    const legacyPayload = { ...payload };
+    delete legacyPayload.p_ignore_driver_capacity;
+    return await sbRequest('/rest/v1/rpc/assign_ride_transactional', {
+      method: 'POST',
+      body: JSON.stringify(legacyPayload),
+    });
+  }
 }
 
 async function reorderDriverQueue(res, driverId, { rideId, newPosition, actorId, expectedRevision, expectedUpdatedAt }) {
