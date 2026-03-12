@@ -141,6 +141,31 @@ async function handleApi(req, res) {
     if (!requireRole(res, session, ['member', 'volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     return json(res, 200, { rides: await fetchRides() });
   }
+
+  if (req.method === 'GET' && url.pathname === '/api/destinations') {
+    if (!requireRole(res, session, ['member', 'volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
+    return json(res, 200, { destinations: await fetchDestinations() });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/destinations') {
+    if (!requireRole(res, session, ['people_manager', 'super_admin'])) return;
+    const body = await readJson(req);
+    try {
+      return json(res, 201, await createDestination(body));
+    } catch (error) {
+      if (error?.status === 400) {
+        return json(res, 400, { error: error.message });
+      }
+      throw error;
+    }
+  }
+
+  const destinationMatch = url.pathname.match(/^\/api\/destinations\/([^/]+)$/);
+  if (req.method === 'DELETE' && destinationMatch) {
+    if (!requireRole(res, session, ['people_manager', 'super_admin'])) return;
+    await deleteDestination(destinationMatch[1]);
+    return json(res, 200, { success: true });
+  }
   if (req.method === 'POST' && url.pathname === '/api/rides') {
     if (!requireRole(res, session, ['member', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     const body = await readJson(req);
@@ -231,6 +256,72 @@ async function fetchRides() {
     estimatedArrival: row.ride_assignments?.estimated_arrival_time ?? null,
     routePolyline: row.ride_assignments?.route_polyline ?? null,
   }));
+}
+
+
+async function fetchDestinations() {
+  const rows = await sbRequest('/rest/v1/destinations?select=id,name,address,coordinates,created_at&order=name.asc');
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    address: row.address,
+    coordinates: normalizeDestinationCoordinates(row.coordinates),
+    createdAt: row.created_at,
+  }));
+}
+
+async function createDestination({ name, address, coordinates }) {
+  const sanitizedName = `${name ?? ''}`.trim();
+  const sanitizedAddress = `${address ?? ''}`.trim();
+  const normalizedCoordinates = normalizeDestinationCoordinates(coordinates);
+
+  if (!sanitizedName || !sanitizedAddress) {
+    throw badRequest('name and address are required');
+  }
+
+  if (!Number.isFinite(normalizedCoordinates?.lat) || !Number.isFinite(normalizedCoordinates?.lon)) {
+    throw badRequest('coordinates.lat and coordinates.lon are required numeric values');
+  }
+
+  const rows = await sbRequest('/rest/v1/destinations', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({
+      name: sanitizedName,
+      address: sanitizedAddress,
+      coordinates: normalizedCoordinates,
+    }),
+  });
+
+  const row = rows[0];
+  return {
+    id: row.id,
+    name: row.name,
+    address: row.address,
+    coordinates: normalizeDestinationCoordinates(row.coordinates),
+    createdAt: row.created_at,
+  };
+}
+
+async function deleteDestination(destinationId) {
+  await sbRequest(`/rest/v1/destinations?id=eq.${encodeURIComponent(destinationId)}`, {
+    method: 'DELETE',
+    headers: { Prefer: 'return=minimal' },
+  });
+}
+
+function normalizeDestinationCoordinates(coordinates) {
+  if (!coordinates || typeof coordinates !== 'object') return null;
+  const lat = Number(coordinates.lat);
+  const lon = Number(coordinates.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
+}
+
+function badRequest(message) {
+  const error = new Error(message);
+  error.status = 400;
+  return error;
 }
 
 function isActiveRideConflict(error) {

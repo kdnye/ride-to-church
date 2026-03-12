@@ -150,4 +150,20 @@ export const apiClient = {
     const { queue } = await request(`/drivers/${driverId}/queue`);
     return queue.map(normalizeQueueItem);
   },
+  async getDestinations() {
+    const { destinations } = await request('/destinations');
+    return destinations;
+  },
+  async createDestination(destination) {
+    return request('/destinations', {
+      method: 'POST',
+      body: JSON.stringify(destination),
+    });
+  },
+  async deleteDestination(id) {
+    await request(`/destinations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    return true;
+  },
 };

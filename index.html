@@ -72,10 +72,7 @@
       <section class="card page-view" id="view-dispatch">
         <h2>Dispatcher Board</h2>
         <label style="max-width: 300px; margin-bottom: 1rem;">Service Destination
-          <select id="dispatch-destination">
-            <option value='{"lat":32.2226,"lon":-110.9747}'>Main Church Building</option>
-            <option value='{"lat":32.3000,"lon":-110.8000}'>Eastside Retreat Center</option>
-          </select>
+          <select id="dispatch-destination"></select>
         </label>
         <div class="actions">
           <button id="auto-assign-btn">Run Auto-Assign</button>
@@ -102,7 +99,18 @@
       <section class="card page-view" id="view-admin">
         <h2>User Management</h2>
         <div id="user-management-list"></div>
-        
+
+        <hr />
+        <h3>Manage Service Destinations</h3>
+        <ul id="admin-destinations-list" style="margin-bottom: 1rem;"></ul>
+
+        <form id="add-destination-form" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <input id="new-dest-name" type="text" placeholder="Location Name (e.g. Retreat Center)" required />
+          <input id="new-dest-address" type="text" placeholder="Full Address" required style="flex-grow: 1;" />
+          <button type="submit">Add Location</button>
+        </form>
+        <p id="dest-feedback" style="font-size: 0.9em; margin-top: 0.5rem;"></p>
+
         <h2 style="margin-top: 2rem;">Audit Log Viewer</h2>
         <ul id="audit-log"></ul>
       </section>
