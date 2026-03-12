@@ -89,6 +89,11 @@ export const apiClient = {
       body: JSON.stringify(updates),
     });
   },
+  async resetRides() {
+    return request('/admin/reset-rides', {
+      method: 'POST',
+    });
+  },
   async getRides() {
     const { rides } = await request('/rides');
     return rides.map(normalizeRide);

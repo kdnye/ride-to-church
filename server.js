@@ -162,6 +162,35 @@ async function handleApi(req, res) {
     const body = await readJson(req);
     return updateUser(res, userMatch[1], body);
   }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/reset-rides') {
+    if (!requireRole(res, session, ['super_admin'])) return;
+
+    await sbRequest('/rest/v1/ride_assignments?id=not.is.null', {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' },
+    });
+    await sbRequest('/rest/v1/rides?id=not.is.null', {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' },
+    });
+
+    const users = await fetchUsers();
+    const members = users.filter((user) => user.role === 'member').slice(0, 20);
+    const scheduledFor = getNextSundayDate();
+
+    await Promise.all(
+      members.map((member) => createRide({ memberId: member.id, scheduledFor })),
+    );
+
+    return json(res, 200, {
+      ok: true,
+      message: 'Test data reset',
+      ridesCreated: members.length,
+      scheduledFor,
+    });
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/rides') {
     if (!requireRole(res, session, ['member', 'volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     return json(res, 200, { rides: await fetchRides() });
@@ -399,6 +428,13 @@ function requireRole(res, session, allowedRoles) {
   if (allowedRoles.includes(session.role)) return true;
   json(res, 403, { error: 'Forbidden for current role' });
   return false;
+}
+
+function getNextSundayDate() {
+  const nextSunday = new Date();
+  const daysUntilNextSunday = ((7 - nextSunday.getDay()) % 7) || 7;
+  nextSunday.setDate(nextSunday.getDate() + daysUntilNextSunday);
+  return nextSunday.toISOString().split('T')[0];
 }
 
 
