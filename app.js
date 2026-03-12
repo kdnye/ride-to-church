@@ -710,7 +710,7 @@ async function renderDispatchMap() {
       position,
       map,
       title: destination.name || 'Destination',
-      icon: 'https://maps.google.com/mapfiles/ms/icons/purple-dot.png',
+      icon: 'http://maps.google.com/mapfiles/ms/icons/purple-dot.png',
     });
     const infoWindow = new google.maps.InfoWindow({
       content: `<strong>${escapeHtml(destination.name || 'Destination')}</strong><br/>Destination`,
@@ -731,7 +731,7 @@ async function renderDispatchMap() {
         position,
         map,
         title: driver.fullName || 'Driver',
-        icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+        icon: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
       });
       const infoWindow = new google.maps.InfoWindow({
         content: `<strong>${escapeHtml(driver.fullName || 'Driver')}</strong><br/>Capacity: ${effectiveCapacity(driver)}`,
@@ -765,10 +765,10 @@ async function renderDispatchMap() {
         map,
         title: member.fullName || 'Member',
         icon: activeRide?.status === 'assigned'
-          ? 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'
+          ? 'http://maps.google.com/mapfiles/ms/icons/green-dot.png'
           : activeRide?.status === 'requested'
-            ? 'https://maps.google.com/mapfiles/ms/icons/red-dot.png'
-            : 'https://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
+            ? 'http://maps.google.com/mapfiles/ms/icons/red-dot.png'
+            : 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
       });
       const infoWindow = new google.maps.InfoWindow({
         content: `<strong>${escapeHtml(member.fullName || 'Member')}</strong><br/>Status: ${escapeHtml(statusLabel)}`,
