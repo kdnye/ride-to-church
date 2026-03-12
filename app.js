@@ -18,10 +18,22 @@ const defaultState = {
   destinations: [],
 };
 
+// Safely load user from localStorage to prevent JSON.parse crashes
+let savedUser = null;
+try {
+  const raw = localStorage.getItem('rtc-user');
+  if (raw && raw !== 'undefined') {
+    savedUser = JSON.parse(raw);
+  }
+} catch (err) {
+  console.warn('Cleared corrupted auth state');
+  localStorage.removeItem('rtc-user');
+}
+
 const state = {
   ...defaultState,
   settings: loadSettings(),
-  currentUser: JSON.parse(localStorage.getItem('rtc-user')) || null,
+  currentUser: savedUser,
 };
 
 // DOM Elements
@@ -718,13 +730,12 @@ function writeAudit({ type, actorId, before, after, metadata = {} }) {
   });
 }
 
+// --- BULLETPROOF HTML ESCAPE ---
 function escapeHtml(value) {
-  if (value == null) return '';
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  if (value === null || value === undefined) return '';
+  const div = document.createElement('div');
+  div.textContent = String(value);
+  return div.innerHTML;
 }
 
 function currentActor() { return state.currentUser; }
