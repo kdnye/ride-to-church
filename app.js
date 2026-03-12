@@ -1,6 +1,7 @@
 import { autoAssignRides, nearestDrivers } from './logic.js';
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { apiClient } from './src/apiClient.js';
+import { isGeolocationDenialOrTimeout } from './src/geolocation.js';
 
 const SETTINGS_STORAGE_KEY = 'rtc-settings-v3';
 
@@ -316,7 +317,11 @@ async function onCreateRideRequest(event) {
         });
         notes = `[GPS Pickup: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}] ${notes}`.trim();
       } catch (err) {
-        alert('Could not get GPS location. Ensure location permissions are granted. Defaulting to home address.');
+        if (isGeolocationDenialOrTimeout(err)) {
+          alert('Could not get GPS location due to permission denial or timeout. Defaulting to home address.');
+        } else {
+          console.warn('GPS lookup failed for a non-permission reason; using home address fallback.', err);
+        }
       }
     }
   }
