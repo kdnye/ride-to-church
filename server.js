@@ -24,7 +24,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distRoot = path.join(__dirname, 'dist');
 const sourceRoot = path.join(__dirname);
+const NODE_ENV = process.env.NODE_ENV ?? 'development';
 const hasDistBuild = existsSync(path.join(distRoot, 'index.html'));
+if (NODE_ENV === 'production' && !hasDistBuild) {
+  throw new Error('Production build requires dist/ assets. Run `npm run build:client` during image build.');
+}
 const publicRoot = hasDistBuild ? distRoot : sourceRoot;
 const FALLBACK_PUBLIC_FILES = new Set([
   'index.html',
@@ -37,7 +41,6 @@ const FALLBACK_PUBLIC_FILES = new Set([
 const FALLBACK_PUBLIC_DIRS = ['assets', 'public', 'images', 'fonts']
   .filter((dir) => existsSync(path.join(sourceRoot, dir)));
 const PORT = Number(process.env.PORT || 4173);
-const NODE_ENV = process.env.NODE_ENV ?? 'development';
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 1000 * 60 * 60 * 8);
 const SESSION_EXTEND_THRESHOLD_MS = Number(process.env.SESSION_EXTEND_THRESHOLD_MS || 1000 * 60 * 30);
