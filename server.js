@@ -230,6 +230,7 @@ async function fetchUsers() {
     fullName: row.full_name,
     email: row.email ?? null,
     role: row.role,
+    approvalStatus: row.approval_status ?? row.approvalStatus ?? null,
     approval_status: row.approval_status ?? row.approvalStatus ?? null,
     approved_by: row.approved_by,
     approved_at: row.approved_at,
@@ -759,11 +760,19 @@ async function fetchUserById(userId) {
 function pointToCoordinates(value) {
   if (!value) return null;
 
+  if (typeof value === 'string' && value.trim().startsWith('{')) {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      // keep original value and continue with legacy parsing
+    }
+  }
+
   let lat;
   let lon;
 
   if (typeof value === 'string') {
-    const match = value.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
+    const match = value.match(/POINT\(([-\d.]+) ([-\d.]+)\)/i);
     if (match) {
       [, lon, lat] = match;
     }
