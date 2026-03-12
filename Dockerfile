@@ -1,26 +1,22 @@
-# Use the LTS version of Node.js on Alpine Linux for a smaller footprint
+# Build frontend assets, then run server with production-only dependencies.
 FROM node:20-alpine
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy package.json (and package-lock.json if you have one)
+# Install dependencies (including dev deps for Vite build)
 COPY package*.json ./
+RUN npm install
 
-# Install only production dependencies
-RUN npm install --omit=dev
-
-# Copy the rest of the application files (server.js, logic.js, src/, public assets, etc.)
+# Copy source and build the client bundle
 COPY . .
+RUN npm run build:client
 
-# Set environment variables for production execution
-# Note: Database secrets and API keys should NOT be set here. 
-# They should be injected by your hosting provider at runtime.
+# Remove dev dependencies after build to keep image lean
+RUN npm prune --omit=dev
+
 ENV NODE_ENV=production
-ENV PORT=4173
+ENV PORT=8080
 
-# Expose the default port your server.js listens on
-EXPOSE 4173
+EXPOSE 8080
 
-# Start the Node.js server using the production script from package.json
 CMD ["npm", "run", "start:prod"]
