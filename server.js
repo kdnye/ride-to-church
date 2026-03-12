@@ -24,7 +24,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distRoot = path.join(__dirname, 'dist');
 const sourceRoot = path.join(__dirname);
-const publicRoot = existsSync(path.join(distRoot, 'index.html')) ? distRoot : sourceRoot;
+const hasDistBuild = existsSync(path.join(distRoot, 'index.html'));
+const publicRoot = hasDistBuild ? distRoot : sourceRoot;
+const FALLBACK_PUBLIC_FILES = new Set(['index.html', 'app.js', 'styles.css']);
+const FALLBACK_PUBLIC_DIRS = ['assets', 'public', 'images', 'fonts']
+  .filter((dir) => existsSync(path.join(sourceRoot, dir)));
 const PORT = Number(process.env.PORT || 4173);
 const NODE_ENV = process.env.NODE_ENV ?? 'development';
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -89,6 +93,13 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Ride to Church listening on http://localhost:${PORT}`);
+  if (!hasDistBuild) {
+    console.warn('[static] Dist build not found; running in source fallback mode with strict asset allowlist.');
+    console.warn(`[static] Allowed files: ${Array.from(FALLBACK_PUBLIC_FILES).join(', ')}`);
+    if (FALLBACK_PUBLIC_DIRS.length > 0) {
+      console.warn(`[static] Allowed directories: ${FALLBACK_PUBLIC_DIRS.join(', ')}`);
+    }
+  }
 });
 
 scheduleExpiredSessionCleanup();
@@ -857,6 +868,11 @@ async function serveStatic(req, res) {
   }
 
   const relativePath = normalizedPath.replace(/^[/\\]+/, '');
+
+  if (!hasDistBuild && !isAllowedFallbackAsset(relativePath)) {
+    return json(res, 403, { error: 'Forbidden' });
+  }
+
   const fullPath = path.resolve(publicRoot, relativePath);
   if (!fullPath.startsWith(publicRoot + path.sep)) {
     return json(res, 403, { error: 'Forbidden' });
@@ -876,6 +892,16 @@ async function serveStatic(req, res) {
     }
     throw error;
   }
+}
+
+function isAllowedFallbackAsset(relativePath) {
+  if (FALLBACK_PUBLIC_FILES.has(relativePath)) {
+    return true;
+  }
+
+  return FALLBACK_PUBLIC_DIRS.some((dir) => {
+    return relativePath === dir || relativePath.startsWith(`${dir}/`);
+  });
 }
 
 function json(res, status, payload, extraHeaders = {}) {
