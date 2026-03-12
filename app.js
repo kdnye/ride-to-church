@@ -114,6 +114,7 @@ function renderNav() {
     .map(r => `<a href="${r.path}">${r.label}</a>`)
     .join('');
 }
+
 // --- Safe Listener Helper ---
 function safeAddListener(selector, event, handler) {
   const el = document.querySelector(selector);
@@ -570,7 +571,6 @@ function renderBoard() {
     .join('') || '<li class="muted">No assigned rides.</li>';
 }
 
-
 function renderDestinations() {
   const actor = currentActor();
   const dispatchSelect = document.querySelector('#dispatch-destination');
@@ -654,7 +654,7 @@ function renderAdminPanel() {
   const destinationFeedbackEl = document.querySelector('#dest-feedback');
   if (!actor || !canManageUsers(actor)) {
     listEl.innerHTML = '';
-    if (destinationListEl) destinationListEl.innerHTML = '';
+    if (destinationListEl) destinationListListEl.innerHTML = '';
     if (destinationFeedbackEl) destinationFeedbackEl.textContent = '';
     return;
   }
@@ -718,13 +718,15 @@ function writeAudit({ type, actorId, before, after, metadata = {} }) {
   });
 }
 
+// --- SAFE HTML ESCAPE ---
 function escapeHtml(value) {
-  return String(value || '')
+  if (value === null || value === undefined) return '';
+  return String(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/'/g, '&' + '#39;');
 }
 
 function currentActor() { return state.currentUser; }
