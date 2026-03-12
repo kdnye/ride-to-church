@@ -451,7 +451,6 @@ async function onAutoAssign() {
   if (!assignments.length) return;
 
   try {
-    // FIX: Look up the destination by ID, and gracefully fallback to null if nothing is selected
     const destinationId = document.querySelector('#dispatch-destination')?.value;
     const destinationCoordinates = state.destinations.find(d => d.id === destinationId)?.coordinates || null;
 
@@ -510,7 +509,7 @@ function refreshAll() {
 
   const actor = currentActor();
   if (actor) {
-    document.querySelector('#profile-info').innerHTML = `Logged in as <strong>${actor.fullName || actor.email || 'User'}</strong><br>Role: ${roleLabel(actor.role)}<br>Status: ${actor.approvalStatus}`;
+    document.querySelector('#profile-info').innerHTML = `Logged in as <strong>${escapeHtml(actor.fullName) || escapeHtml(actor.email) || 'User'}</strong><br>Role: ${escapeHtml(roleLabel(actor.role))}<br>Status: ${escapeHtml(actor.approvalStatus)}`;
   }
 
   renderSelects();
@@ -527,8 +526,8 @@ function renderSelects() {
   const approvedMembers = state.users.filter((u) => u.role === 'member' && u.approval_status === 'approved');
   const approvedDrivers = state.users.filter((u) => u.role === 'volunteer_driver' && u.approval_status === 'approved');
 
-  memberSelect.innerHTML = approvedMembers.map((u) => `<option value="${u.id}">${u.fullName}</option>`).join('');
-  driverSelect.innerHTML = approvedDrivers.map((u) => `<option value="${u.id}">${u.fullName}</option>`).join('');
+  memberSelect.innerHTML = approvedMembers.map((u) => `<option value="${u.id}">${escapeHtml(u.fullName)}</option>`).join('');
+  driverSelect.innerHTML = approvedDrivers.map((u) => `<option value="${u.id}">${escapeHtml(u.fullName)}</option>`).join('');
 
   const memberSelectWrapper = document.querySelector('#member-select-wrapper');
   if (actor && ['volunteer_dispatcher', 'people_manager', 'super_admin'].includes(actor.role)) {
@@ -553,10 +552,10 @@ function renderBoard() {
       const member = state.users.find((u) => u.id === r.memberId);
       const nearest = member?.coordinates
         ? nearestDrivers(member, approvedDrivers.filter((d) => d.coordinates), queueLoads)
-          .map((d) => `${d.fullName} (${d.distanceKm.toFixed(1)}km)`)
+          .map((d) => `${escapeHtml(d.fullName)} (${d.distanceKm.toFixed(1)}km)`)
           .join(', ')
         : '';
-      return `<li><strong>${member?.fullName ?? 'Unknown member'}</strong> - ${r.scheduledFor}<br/><span class="muted">Closest approved drivers: ${nearest || 'none'}</span></li>`;
+      return `<li><strong>${escapeHtml(member?.fullName ?? 'Unknown member')}</strong> - ${r.scheduledFor}<br/><span class="muted">Closest approved drivers: ${nearest || 'none'}</span></li>`;
     })
     .join('') || '<li class="muted">No requested rides.</li>';
 
@@ -566,7 +565,7 @@ function renderBoard() {
     .map((r) => {
       const member = state.users.find((u) => u.id === r.memberId);
       const driver = state.users.find((u) => u.id === r.driverId);
-      return `<li><span class="badge">Assigned</span> ${member?.fullName ?? 'Unknown'} → ${driver?.fullName ?? 'Unassigned'} (Stop ${r.queueOrder ?? '-'})</li>`;
+      return `<li><span class="badge">Assigned</span> ${escapeHtml(member?.fullName ?? 'Unknown')} → ${escapeHtml(driver?.fullName ?? 'Unassigned')} (Stop ${r.queueOrder ?? '-'})</li>`;
     })
     .join('') || '<li class="muted">No assigned rides.</li>';
 }
@@ -640,7 +639,7 @@ async function renderDriverQueue() {
       .map((item) => {
         const { lat, lon } = item.member.coordinates;
         const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
-        return `<li><span class="badge">Stop ${item.queueOrder}</span> <strong>${item.member.fullName}</strong> — ${item.pickupNotes || 'No notes'}<br/><a href="${navUrl}" target="_blank" rel="noreferrer">Start navigation</a></li>`;
+        return `<li><span class="badge">Stop ${item.queueOrder}</span> <strong>${escapeHtml(item.member.fullName)}</strong> — ${escapeHtml(item.pickupNotes) || 'No notes'}<br/><a href="${navUrl}" target="_blank" rel="noreferrer">Start navigation</a></li>`;
       })
       .join('') || '<li class="muted">No active stops for this driver.</li>';
   } catch (error) {
@@ -662,7 +661,7 @@ function renderAdminPanel() {
 
   listEl.innerHTML = state.users.map(u => `
     <div class="user-row" style="margin-bottom: 1rem; padding: 0.5rem; border: 1px solid #eee;">
-      <strong>${u.fullName}</strong> (${u.email || 'No email'})
+      <strong>${escapeHtml(u.fullName)}</strong> (${escapeHtml(u.email) || 'No email'})
       <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
         <select onchange="window.updateUserStatus('${u.id}', this.value)">
           <option value="pending" ${u.approval_status === 'pending' ? 'selected' : ''}>Pending</option>
@@ -703,7 +702,7 @@ function renderAuditLog() {
   auditLogEl.innerHTML = state.auditLogs
     .slice()
     .reverse()
-    .map((log) => `<li><strong>${log.type}</strong> by ${displayName(log.actorId)} at ${new Date(log.timestamp).toLocaleString()}</li>`)
+    .map((log) => `<li><strong>${escapeHtml(log.type)}</strong> by ${escapeHtml(displayName(log.actorId))} at ${new Date(log.timestamp).toLocaleString()}</li>`)
     .join('') || '<li class="muted">No audit records yet.</li>';
 }
 
@@ -720,12 +719,12 @@ function writeAudit({ type, actorId, before, after, metadata = {} }) {
 }
 
 function escapeHtml(value) {
-  return `${value ?? ''}`
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function currentActor() { return state.currentUser; }
