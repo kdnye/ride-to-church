@@ -710,7 +710,7 @@ async function renderDispatchMap() {
       position,
       map,
       title: destination.name || 'Destination',
-      icon: 'http://maps.google.com/mapfiles/ms/icons/purple-dot.png',
+      icon: 'https://maps.google.com/mapfiles/ms/icons/purple-dot.png',
     });
     const infoWindow = new google.maps.InfoWindow({
       content: `<strong>${escapeHtml(destination.name || 'Destination')}</strong><br/>Destination`,
@@ -731,7 +731,7 @@ async function renderDispatchMap() {
         position,
         map,
         title: driver.fullName || 'Driver',
-        icon: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+        icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
       });
       const infoWindow = new google.maps.InfoWindow({
         content: `<strong>${escapeHtml(driver.fullName || 'Driver')}</strong><br/>Capacity: ${effectiveCapacity(driver)}`,
@@ -765,10 +765,10 @@ async function renderDispatchMap() {
         map,
         title: member.fullName || 'Member',
         icon: activeRide?.status === 'assigned'
-          ? 'http://maps.google.com/mapfiles/ms/icons/green-dot.png'
+          ? 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'
           : activeRide?.status === 'requested'
-            ? 'http://maps.google.com/mapfiles/ms/icons/red-dot.png'
-            : 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
+            ? 'https://maps.google.com/mapfiles/ms/icons/red-dot.png'
+            : 'https://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
       });
       const infoWindow = new google.maps.InfoWindow({
         content: `<strong>${escapeHtml(member.fullName || 'Member')}</strong><br/>Status: ${escapeHtml(statusLabel)}`,
@@ -895,7 +895,7 @@ async function renderDriverMap() {
       position: startPos,
       map,
       title: 'Driver Start',
-      icon: 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+      icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
     });
     mapState.markers.driver.push(startMarker);
     bounds.extend(startPos);
