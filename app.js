@@ -2,6 +2,9 @@ import { autoAssignRides, nearestDrivers } from './logic.js';
 import { createClient } from '@supabase/supabase-js';
 import { apiClient } from './src/apiClient.js';
 import { isGeolocationDenialOrTimeout } from './src/geolocation.js';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+window.L = L;
 
 const SETTINGS_STORAGE_KEY = 'rtc-settings-v3';
 
