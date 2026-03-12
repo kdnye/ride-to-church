@@ -14,7 +14,8 @@
     "preview:client": "vite preview"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.49.4"
+    "@supabase/supabase-js": "^2.49.4",
+    "leaflet": "^1.9.4"
   },
   "devDependencies": {
     "vite": "^5.4.11"
