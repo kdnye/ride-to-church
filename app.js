@@ -368,9 +368,20 @@ async function onAutoAssign() {
   if (!assignments.length) return;
 
   try {
+    const destinationRaw = document.querySelector('#dispatch-destination')?.value;
+    let destinationCoordinates = null;
+    if (destinationRaw) {
+      try {
+        destinationCoordinates = JSON.parse(destinationRaw);
+      } catch {
+        destinationCoordinates = null;
+      }
+    }
+
     const response = await apiClient.autoAssign({
       actorId: currentActor().id,
       maxRidesPerDriver: state.settings.maxRidesPerDriver,
+      destinationCoordinates,
     });
     state.rides = response.rides;
     assignResult.textContent = `Assigned ${response.assignments.length} ride(s).`;

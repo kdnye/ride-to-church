@@ -70,6 +70,12 @@
 
       <section class="card page-view" id="view-dispatch">
         <h2>Dispatcher Board</h2>
+        <label style="max-width: 300px; margin-bottom: 1rem;">Service Destination
+          <select id="dispatch-destination">
+            <option value='{"lat":32.2226,"lon":-110.9747}'>Main Church Building</option>
+            <option value='{"lat":32.3000,"lon":-110.8000}'>Eastside Retreat Center</option>
+          </select>
+        </label>
         <div class="actions">
           <button id="auto-assign-btn">Run Auto-Assign</button>
           <span id="assign-result" role="status"></span>
