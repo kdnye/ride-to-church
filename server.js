@@ -759,31 +759,24 @@ async function fetchUserById(userId) {
 function pointToCoordinates(value) {
   if (!value) return null;
 
-  if (typeof value === 'object') {
-    if (value.type === 'Point' && Array.isArray(value.coordinates)) {
-      const [lon, lat] = value.coordinates;
-      if (Number.isFinite(lat) && Number.isFinite(lon)) {
-        return { lat, lon };
-      }
-      return null;
-    }
+  let lat;
+  let lon;
 
-    const lat = Number(value.lat);
-    const lon = Number(value.lon);
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      return { lat, lon };
+  if (typeof value === 'string') {
+    const match = value.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
+    if (match) {
+      [, lon, lat] = match;
     }
-
-    return null;
+  } else if (value.type === 'Point' && Array.isArray(value.coordinates)) {
+    [lon, lat] = value.coordinates;
+  } else if (typeof value === 'object') {
+    ({ lat, lon } = value);
   }
 
-  if (typeof value !== 'string') return null;
-  const match = value.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
-  if (!match) return null;
-  const lon = Number(match[1]);
-  const lat = Number(match[2]);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return { lat, lon };
+  const numericLat = Number(lat);
+  const numericLon = Number(lon);
+  if (!Number.isFinite(numericLat) || !Number.isFinite(numericLon)) return null;
+  return { lat: numericLat, lon: numericLon };
 }
 
 function scheduleExpiredSessionCleanup() {
