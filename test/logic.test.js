@@ -49,6 +49,95 @@ test('autoAssignRides respects maxRidesPerDriver', () => {
   assert.equal(rides[1].status, 'requested');
 });
 
+
+
+test('autoAssignRides applies driver-specific capacity when lower than global max', () => {
+  const users = [
+    { id: 'm1', role: 'member', approval_status: 'approved', coordinates: { lat: 35, lon: -90 } },
+    { id: 'm2', role: 'member', approval_status: 'approved', coordinates: { lat: 35.001, lon: -90 } },
+    {
+      id: 'd1',
+      role: 'volunteer_driver',
+      approval_status: 'approved',
+      coordinates: { lat: 35.002, lon: -90 },
+      daily_ride_capacity: 1,
+    },
+  ];
+  const rides = [
+    { id: 'r1', memberId: 'm1', status: 'requested' },
+    { id: 'r2', memberId: 'm2', status: 'requested' },
+  ];
+
+  const assignments = autoAssignRides({ rides, users, maxRidesPerDriver: 5 });
+
+  assert.equal(assignments.length, 1);
+  assert.equal(rides[0].driverId, 'd1');
+  assert.equal(rides[1].status, 'requested');
+});
+
+test('autoAssignRidesWithEvents falls back to global max when driver capacity is null', () => {
+  const users = [
+    { id: 'm1', role: 'member', approval_status: 'approved', coordinates: { lat: 35, lon: -90 } },
+    { id: 'm2', role: 'member', approval_status: 'approved', coordinates: { lat: 35.001, lon: -90 } },
+    {
+      id: 'd1',
+      role: 'volunteer_driver',
+      approval_status: 'approved',
+      coordinates: { lat: 35.002, lon: -90 },
+      daily_ride_capacity: null,
+    },
+  ];
+  const rides = [
+    { id: 'r1', memberId: 'm1', status: 'requested' },
+    { id: 'r2', memberId: 'm2', status: 'requested' },
+  ];
+
+  const { assignments, emittedEvents } = autoAssignRidesWithEvents({
+    rides,
+    users,
+    maxRidesPerDriver: 2,
+  });
+
+  assert.equal(assignments.length, 2);
+  assert.equal(emittedEvents.length, 4);
+  assert.deepEqual(rides.map((ride) => ride.status), ['assigned', 'assigned']);
+});
+
+test('autoAssignRides respects mixed driver-specific capacities in candidate pool', () => {
+  const users = [
+    { id: 'm1', role: 'member', approval_status: 'approved', coordinates: { lat: 35, lon: -90 } },
+    { id: 'm2', role: 'member', approval_status: 'approved', coordinates: { lat: 35.001, lon: -90 } },
+    { id: 'm3', role: 'member', approval_status: 'approved', coordinates: { lat: 35.002, lon: -90 } },
+    {
+      id: 'd1',
+      role: 'volunteer_driver',
+      approval_status: 'approved',
+      coordinates: { lat: 35.003, lon: -90 },
+      daily_ride_capacity: 1,
+    },
+    {
+      id: 'd2',
+      role: 'volunteer_driver',
+      approval_status: 'approved',
+      coordinates: { lat: 35.004, lon: -90 },
+      daily_ride_capacity: 2,
+    },
+  ];
+  const rides = [
+    { id: 'r1', memberId: 'm1', status: 'requested' },
+    { id: 'r2', memberId: 'm2', status: 'requested' },
+    { id: 'r3', memberId: 'm3', status: 'requested' },
+  ];
+
+  const assignments = autoAssignRides({ rides, users, maxRidesPerDriver: 5 });
+
+  assert.equal(assignments.length, 3);
+  assert.deepEqual(
+    rides.map((ride) => ride.driverId),
+    ['d1', 'd2', 'd2'],
+  );
+});
+
 test('queueForDriver returns only assigned rides sorted by queue order', () => {
   const users = [{ id: 'm1', fullName: 'M', coordinates: { lat: 0, lon: 0 } }];
   const rides = [
