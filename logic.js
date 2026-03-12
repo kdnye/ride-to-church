@@ -62,7 +62,10 @@ export function autoAssignRides({
     const candidates = nearestDrivers(member, drivers, queueLoads, {
       travelTimeSecondsByDriverId: travelTimeSecondsByMemberDriver[member.id],
     })
-      .filter((driver) => queueLoads[driver.id] < maxRidesPerDriver);
+      .filter((driver) => {
+        const driverCapacity = driver.daily_ride_capacity ?? maxRidesPerDriver;
+        return queueLoads[driver.id] < driverCapacity;
+      });
     if (!candidates.length) continue;
 
     const selected = candidates[0];
@@ -112,7 +115,10 @@ export function autoAssignRidesWithEvents({
     const candidates = nearestDrivers(member, drivers, queueLoads, {
       travelTimeSecondsByDriverId: travelTimeSecondsByMemberDriver[member.id],
     })
-      .filter((driver) => queueLoads[driver.id] < maxRidesPerDriver);
+      .filter((driver) => {
+        const driverCapacity = driver.daily_ride_capacity ?? maxRidesPerDriver;
+        return queueLoads[driver.id] < driverCapacity;
+      });
     if (!candidates.length) continue;
 
     const selected = candidates[0];
