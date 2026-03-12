@@ -654,7 +654,7 @@ function renderAdminPanel() {
   const destinationFeedbackEl = document.querySelector('#dest-feedback');
   if (!actor || !canManageUsers(actor)) {
     listEl.innerHTML = '';
-    if (destinationListEl) destinationListListEl.innerHTML = '';
+    if (destinationListEl) destinationListEl.innerHTML = '';
     if (destinationFeedbackEl) destinationFeedbackEl.textContent = '';
     return;
   }
@@ -718,15 +718,14 @@ function writeAudit({ type, actorId, before, after, metadata = {} }) {
   });
 }
 
-// --- SAFE HTML ESCAPE ---
 function escapeHtml(value) {
-  if (value === null || value === undefined) return '';
+  if (value == null) return '';
   return String(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&' + '#39;');
+    .replace(/'/g, '&#039;');
 }
 
 function currentActor() { return state.currentUser; }
