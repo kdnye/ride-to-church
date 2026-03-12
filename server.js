@@ -230,7 +230,7 @@ async function fetchUsers() {
     fullName: row.full_name,
     email: row.email ?? null,
     role: row.role,
-    approval_status: row.approval_status,
+    approval_status: row.approval_status ?? row.approvalStatus ?? null,
     approved_by: row.approved_by,
     approved_at: row.approved_at,
     coordinates: pointToCoordinates(row.coordinates),
@@ -757,10 +757,33 @@ async function fetchUserById(userId) {
 }
 
 function pointToCoordinates(value) {
-  if (!value || typeof value !== 'string') return null;
+  if (!value) return null;
+
+  if (typeof value === 'object') {
+    if (value.type === 'Point' && Array.isArray(value.coordinates)) {
+      const [lon, lat] = value.coordinates;
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        return { lat, lon };
+      }
+      return null;
+    }
+
+    const lat = Number(value.lat);
+    const lon = Number(value.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      return { lat, lon };
+    }
+
+    return null;
+  }
+
+  if (typeof value !== 'string') return null;
   const match = value.match(/POINT\(([-\d.]+) ([-\d.]+)\)/);
   if (!match) return null;
-  return { lon: Number(match[1]), lat: Number(match[2]) };
+  const lon = Number(match[1]);
+  const lat = Number(match[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
 }
 
 function scheduleExpiredSessionCleanup() {
