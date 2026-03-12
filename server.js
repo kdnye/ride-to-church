@@ -144,7 +144,15 @@ async function handleApi(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/rides') {
     if (!requireRole(res, session, ['member', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     const body = await readJson(req);
-    return json(res, 201, { ride: await createRide({ ...body, actorId: session.userId }) });
+    try {
+      const ride = await createRide({ ...body, actorId: session.userId });
+      return json(res, 201, { ride });
+    } catch (error) {
+      if (isActiveRideConflict(error)) {
+        return json(res, 409, { error: 'Active ride already exists for that date' });
+      }
+      throw error;
+    }
   }
   if (req.method === 'POST' && url.pathname === '/api/rides/auto-assign') {
     if (!requireRole(res, session, ['volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
@@ -223,6 +231,10 @@ async function fetchRides() {
     estimatedArrival: row.ride_assignments?.estimated_arrival_time ?? null,
     routePolyline: row.ride_assignments?.route_polyline ?? null,
   }));
+}
+
+function isActiveRideConflict(error) {
+  return error?.status === 409 && error?.code === '23505';
 }
 
 async function createRide({ memberId, scheduledFor, pickupNotes, wheelchairPickupBufferMinutes, pickupWindowStart, pickupWindowEnd }) {

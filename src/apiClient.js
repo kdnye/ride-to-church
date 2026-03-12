@@ -86,11 +86,18 @@ export const apiClient = {
     return rides.map(normalizeRide);
   },
   async createRide(input) {
-    const { ride } = await request('/rides', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    });
-    return normalizeRide(ride);
+    try {
+      const { ride } = await request('/rides', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+      return normalizeRide(ride);
+    } catch (error) {
+      if (error.status === 409) {
+        error.message = error.details?.error || 'Active ride already exists for that date';
+      }
+      throw error;
+    }
   },
   async autoAssign(input) {
     const response = await request('/rides/auto-assign', {
