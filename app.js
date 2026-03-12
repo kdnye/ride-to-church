@@ -72,6 +72,52 @@ const realtime = {
   isRefreshQueued: false,
 };
 
+const mapState = {
+  dispatch: { map: null, layers: null },
+  driver: { map: null, layers: null },
+};
+
+function normalizeCoordinates(rawCoordinates) {
+  if (!rawCoordinates || typeof rawCoordinates !== 'object') return null;
+  const lat = Number(rawCoordinates.lat);
+  const lon = Number(rawCoordinates.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
+}
+
+function effectiveCapacity(driver) {
+  if (!driver || typeof driver !== 'object') return state.settings.maxRidesPerDriver;
+  const raw = driver.daily_ride_capacity ?? driver.dailyRideCapacity;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : state.settings.maxRidesPerDriver;
+}
+
+function initMap(containerId, mapKey) {
+  const container = document.getElementById(containerId);
+  if (!container || mapState[mapKey].map) return mapState[mapKey].map;
+
+  const map = L.map(containerId);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors',
+  }).addTo(map);
+
+  map.setView([39.8283, -98.5795], 4);
+
+  mapState[mapKey].map = map;
+  mapState[mapKey].layers = L.layerGroup().addTo(map);
+  return map;
+}
+
+function invalidateVisibleMap(hash = window.location.hash || '#/profile') {
+  if (hash === '#/dispatch' && mapState.dispatch.map) {
+    setTimeout(() => mapState.dispatch.map.invalidateSize(), 0);
+  }
+  if (hash === '#/drive' && mapState.driver.map) {
+    setTimeout(() => mapState.driver.map.invalidateSize(), 0);
+  }
+}
+
 // --- ROUTING ---
 const routes = [
   { path: '#/login', viewId: 'view-login', label: 'Login', public: true },
@@ -113,6 +159,8 @@ function navigate() {
   document.querySelectorAll('nav#main-nav a').forEach(a => {
     a.classList.toggle('active', a.getAttribute('href') === hash);
   });
+
+  invalidateVisibleMap(hash);
 }
 
 function renderNav() {
@@ -590,6 +638,57 @@ function renderBoard() {
       return `<li><span class="badge">Assigned</span> ${escapeHtml(member?.fullName ?? 'Unknown')} → ${escapeHtml(driver?.fullName ?? 'Unassigned')} (Stop ${r.queueOrder ?? '-'})</li>`;
     })
     .join('') || '<li class="muted">No assigned rides.</li>';
+
+  renderDispatchMap();
+}
+
+function renderDispatchMap() {
+  const map = initMap('dispatch-map', 'dispatch');
+  if (!map || !mapState.dispatch.layers) return;
+
+  const layers = mapState.dispatch.layers;
+  layers.clearLayers();
+  const boundsPoints = [];
+
+  const approvedDrivers = state.users.filter((u) => u.role === 'volunteer_driver' && u.approval_status === 'approved');
+  for (const driver of approvedDrivers) {
+    const coordinates = normalizeCoordinates(driver.coordinates);
+    if (!coordinates) continue;
+    const marker = L.circleMarker([coordinates.lat, coordinates.lon], {
+      radius: 7,
+      color: '#0b3a75',
+      fillColor: '#0b3a75',
+      fillOpacity: 0.8,
+    }).bindPopup(
+      `<strong>${escapeHtml(driver.fullName || 'Driver')}</strong><br/>Status: Approved driver<br/>Effective capacity: ${effectiveCapacity(driver)}`,
+    );
+    marker.addTo(layers);
+    boundsPoints.push([coordinates.lat, coordinates.lon]);
+  }
+
+  const boardRides = state.rides.filter((ride) => ride.status === 'requested' || ride.status === 'assigned');
+  for (const ride of boardRides) {
+    const member = state.users.find((u) => u.id === ride.memberId);
+    const coordinates = normalizeCoordinates(member?.coordinates);
+    if (!coordinates) continue;
+
+    const assignedDriver = state.users.find((u) => u.id === ride.driverId);
+    const markerColor = ride.status === 'assigned' ? '#2e7d32' : '#ef6c00';
+    const marker = L.circleMarker([coordinates.lat, coordinates.lon], {
+      radius: 6,
+      color: markerColor,
+      fillColor: markerColor,
+      fillOpacity: 0.85,
+    }).bindPopup(
+      `<strong>${escapeHtml(member?.fullName || 'Unknown member')}</strong><br/>Status: ${escapeHtml(ride.status)}<br/>Effective capacity: ${effectiveCapacity(assignedDriver)}`,
+    );
+    marker.addTo(layers);
+    boundsPoints.push([coordinates.lat, coordinates.lon]);
+  }
+
+  if (boundsPoints.length > 0) {
+    map.fitBounds(boundsPoints, { padding: [24, 24], maxZoom: 14 });
+  }
 }
 
 function renderDestinations() {
@@ -656,15 +755,76 @@ async function renderDriverQueue() {
 
   try {
     const queue = await apiClient.getDriverQueue(driverId);
+    if (!Array.isArray(queue) || queue.length === 0) {
+      driverQueue.innerHTML = '<li class="muted">No active stops for this driver.</li>';
+      await renderDriverMap(driverId);
+      return;
+    }
+
     driverQueue.innerHTML = queue
       .map((item) => {
-        const { lat, lon } = item.member.coordinates;
-        const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
-        return `<li><span class="badge">Stop ${item.queueOrder}</span> <strong>${escapeHtml(item.member.fullName)}</strong> — ${escapeHtml(item.pickupNotes) || 'No notes'}<br/><a href="${navUrl}" target="_blank" rel="noreferrer">Start navigation</a></li>`;
+        const coordinates = normalizeCoordinates(item?.member?.coordinates);
+        const navUrl = coordinates
+          ? `https://www.google.com/maps/dir/?api=1&destination=${coordinates.lat},${coordinates.lon}`
+          : null;
+        const navLink = navUrl
+          ? `<br/><a href="${navUrl}" target="_blank" rel="noreferrer">Start navigation</a>`
+          : '<br/><span class="muted">No coordinates available for navigation.</span>';
+        return `<li><span class="badge">Stop ${item.queueOrder}</span> <strong>${escapeHtml(item?.member?.fullName || 'Unknown member')}</strong> — ${escapeHtml(item.pickupNotes) || 'No notes'}${navLink}</li>`;
       })
       .join('') || '<li class="muted">No active stops for this driver.</li>';
+    await renderDriverMap(driverId, queue);
   } catch (error) {
     driverQueue.innerHTML = `<li class="muted">Failed to load queue: ${error.message}</li>`;
+    await renderDriverMap(driverId);
+  }
+}
+
+async function renderDriverMap(driverId, prefetchedQueue = null) {
+  const map = initMap('driver-map', 'driver');
+  if (!map || !mapState.driver.layers) return;
+
+  const layers = mapState.driver.layers;
+  layers.clearLayers();
+
+  if (!driverId) return;
+
+  let queue = prefetchedQueue;
+  if (!Array.isArray(queue)) {
+    try {
+      queue = await apiClient.getDriverQueue(driverId);
+    } catch {
+      return;
+    }
+  }
+
+  if (!Array.isArray(queue) || queue.length === 0) return;
+
+  const boundsPoints = [];
+  for (const item of queue) {
+    const coordinates = normalizeCoordinates(item?.member?.coordinates);
+    if (!coordinates) continue;
+
+    const stopMarker = L.marker([coordinates.lat, coordinates.lon]).bindPopup(
+      `<strong>${escapeHtml(item?.member?.fullName || 'Unknown member')}</strong><br/>Status: ${escapeHtml(item?.status || 'assigned')}<br/>Stop ${escapeHtml(item?.queueOrder ?? '-')}`,
+    );
+    stopMarker.addTo(layers);
+    boundsPoints.push([coordinates.lat, coordinates.lon]);
+
+    if (Array.isArray(item.routePolyline) && item.routePolyline.length > 1) {
+      const polylinePoints = item.routePolyline
+        .map((point) => normalizeCoordinates(point))
+        .filter(Boolean)
+        .map((point) => [point.lat, point.lon]);
+      if (polylinePoints.length > 1) {
+        L.polyline(polylinePoints, { color: '#1565c0', weight: 4, opacity: 0.75 }).addTo(layers);
+        boundsPoints.push(...polylinePoints);
+      }
+    }
+  }
+
+  if (boundsPoints.length > 0) {
+    map.fitBounds(boundsPoints, { padding: [24, 24], maxZoom: 14 });
   }
 }
 
