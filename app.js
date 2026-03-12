@@ -132,7 +132,7 @@ async function boot() {
   if (pickupDate) pickupDate.value = nextSunday();
   
   safeAddListener('#request-form', 'submit', onCreateRideRequest);
-  safeAddListener('#auto-assign-btn', 'click', ign);
+  safeAddListener('#auto-assign-btn', 'click', onAutoAssign);
   safeAddListener('#driver-select', 'change', renderDriverQueue);
   safeAddListener('#save-settings-btn', 'click', onSaveSettings);
   safeAddListener('#send-broadcast-btn', 'click', onSendBroadcast);
@@ -725,7 +725,7 @@ function escapeHtml(value) {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+    .replaceAll("'", '&#039;');
 }
 
 function currentActor() { return state.currentUser; }
