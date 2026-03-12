@@ -671,7 +671,10 @@ async function autoAssign(actorId, maxRidesPerDriver, destinationCoordinates) {
       touchedDriverIds.add(ride.driverId);
       await sbRequest(`/rest/v1/rides?id=eq.${ride.id}`, {
         method: 'PATCH',
-        headers: { Prefer: 'return=minimal' },
+        headers: {
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
         body: JSON.stringify({ status: 'assigned' }),
       });
 

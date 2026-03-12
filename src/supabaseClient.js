@@ -17,19 +17,20 @@ export async function sbRequest(path, options = {}) {
   });
 
   const text = await res.text();
-  
+
   if (!res.ok) {
-    // If Supabase returns an error, safely throw it
-    throw new Error(text);
+    throw new Error(text || `Request failed with status ${res.status}`);
   }
-  
-  // Safely parse the text only if it exists
-  if (!text) return null;
+
+  if (!text || text.trim() === '') {
+    return null;
+  }
+
   try {
     return JSON.parse(text);
-  } catch (error) {
-    console.error("Supabase returned invalid JSON:", text);
-    throw new Error("Failed to parse database response");
+  } catch {
+    console.error('Supabase returned invalid JSON:', text);
+    return null;
   }
 }
 
