@@ -151,6 +151,18 @@ function clearMap(layerKey) {
   }
 }
 
+function buildMarkerIcon(color) {
+  if (!window.google?.maps?.SymbolPath) return undefined;
+  return {
+    path: google.maps.SymbolPath.CIRCLE,
+    scale: 7,
+    fillColor: color,
+    fillOpacity: 1,
+    strokeColor: '#ffffff',
+    strokeWeight: 2,
+  };
+}
+
 async function initMap(containerId, stateKey) {
   if (mapState[stateKey]) return mapState[stateKey];
 
@@ -710,7 +722,7 @@ async function renderDispatchMap() {
       position,
       map,
       title: destination.name || 'Destination',
-      icon: 'https://maps.google.com/mapfiles/ms/icons/purple-dot.png',
+      icon: buildMarkerIcon('#7e57c2'),
     });
     const infoWindow = new google.maps.InfoWindow({
       content: `<strong>${escapeHtml(destination.name || 'Destination')}</strong><br/>Destination`,
@@ -731,7 +743,7 @@ async function renderDispatchMap() {
         position,
         map,
         title: driver.fullName || 'Driver',
-        icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+        icon: buildMarkerIcon('#1565c0'),
       });
       const infoWindow = new google.maps.InfoWindow({
         content: `<strong>${escapeHtml(driver.fullName || 'Driver')}</strong><br/>Capacity: ${effectiveCapacity(driver)}`,
@@ -765,10 +777,10 @@ async function renderDispatchMap() {
         map,
         title: member.fullName || 'Member',
         icon: activeRide?.status === 'assigned'
-          ? 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'
+          ? buildMarkerIcon('#2e7d32')
           : activeRide?.status === 'requested'
-            ? 'https://maps.google.com/mapfiles/ms/icons/red-dot.png'
-            : 'https://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
+            ? buildMarkerIcon('#c62828')
+            : buildMarkerIcon('#f9a825'),
       });
       const infoWindow = new google.maps.InfoWindow({
         content: `<strong>${escapeHtml(member.fullName || 'Member')}</strong><br/>Status: ${escapeHtml(statusLabel)}`,
@@ -895,7 +907,7 @@ async function renderDriverMap() {
       position: startPos,
       map,
       title: 'Driver Start',
-      icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+      icon: buildMarkerIcon('#1565c0'),
     });
     mapState.markers.driver.push(startMarker);
     bounds.extend(startPos);
@@ -910,6 +922,7 @@ async function renderDriverMap() {
     const marker = new google.maps.Marker({
       position,
       map,
+      icon: buildMarkerIcon('#c62828'),
       label: String(item?.queueOrder ?? ''),
       title: item?.member?.fullName || 'Unknown member',
     });
