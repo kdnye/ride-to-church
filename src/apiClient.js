@@ -150,6 +150,18 @@ export const apiClient = {
       latestRide: normalizeRide(response.latestRide),
     };
   },
+  async completeRide(rideId, input) {
+    const response = await request(`/rides/${rideId}/complete`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+    return {
+      ...response,
+      ride: normalizeRide(response.ride),
+      rides: Array.isArray(response.rides) ? response.rides.map(normalizeRide) : response.rides,
+      latestRide: normalizeRide(response.latestRide),
+    };
+  },
   async reorderDriverQueue(driverId, input) {
     const response = await request(`/drivers/${driverId}/queue/reorder`, {
       method: 'POST',

@@ -858,6 +858,7 @@ async function renderDriverQueue() {
 
   try {
     const queue = await apiClient.getDriverQueue(driverId);
+    const canCompleteStops = actor.id === driverId;
     driverQueue.innerHTML = queue
       .map((item) => {
         const coordinates = normalizeCoordinates(item?.member?.coordinates);
@@ -867,7 +868,10 @@ async function renderDriverQueue() {
         const navLink = navUrl
           ? `<br/><a href="${navUrl}" target="_blank" rel="noreferrer">Start navigation</a>`
           : '<br/><span class="muted">No coordinates available for navigation.</span>';
-        return `<li><span class="badge">Stop ${item.queueOrder}</span> <strong>${escapeHtml(item?.member?.fullName || 'Unknown member')}</strong> — ${escapeHtml(item.pickupNotes) || 'No notes'}${navLink}</li>`;
+        const completeButton = canCompleteStops
+          ? `<br/><button type="button" onclick="window.completeStop('${item.id}')" style="margin-top: 0.5rem; width: auto;">Mark stop complete</button>`
+          : '<br/><span class="muted">Select your own driver profile to complete stops.</span>';
+        return `<li><span class="badge">Stop ${item.queueOrder}</span> <strong>${escapeHtml(item?.member?.fullName || 'Unknown member')}</strong> — ${escapeHtml(item.pickupNotes) || 'No notes'}${navLink}${completeButton}</li>`;
       })
       .join('') || '<li class="muted">No active stops for this driver.</li>';
 
@@ -877,6 +881,38 @@ async function renderDriverQueue() {
     await renderDriverMap();
   }
 }
+
+window.completeStop = async (rideId) => {
+  const actor = currentActor();
+  if (!actor || !canDrive(actor)) return;
+
+  const driverId = driverSelect.value;
+  if (actor.id !== driverId) {
+    assignResult.textContent = 'You can only complete stops assigned to your own queue.';
+    return;
+  }
+
+  const ride = state.rides.find((item) => item.id === rideId);
+  if (!ride) {
+    assignResult.textContent = 'Unable to complete stop: ride not found.';
+    return;
+  }
+
+  assignResult.textContent = 'Completing stop...';
+  try {
+    const response = await apiClient.completeRide(rideId, {
+      expectedRevision: ride.revision,
+      expectedUpdatedAt: ride.updatedAt,
+    });
+    state.rides = response.rides;
+    assignResult.textContent = 'Stop completed.';
+    refreshAll();
+  } catch (error) {
+    state.rides = error.details?.rides ?? state.rides;
+    assignResult.textContent = `Failed to complete stop: ${error.message}`;
+    refreshAll();
+  }
+};
 
 async function renderDriverMap() {
   const map = await initMap('driver-map', 'driverMap');
