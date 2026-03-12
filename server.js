@@ -258,6 +258,13 @@ async function handleApi(req, res) {
     return cancelRide(res, cancelMatch[1], { ...body, actorId: session.userId });
   }
 
+  const completeMatch = url.pathname.match(/^\/api\/rides\/([^/]+)\/complete$/);
+  if (req.method === 'POST' && completeMatch) {
+    if (!requireRole(res, session, ['volunteer_driver', 'volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
+    const body = await readJson(req);
+    return completeRide(res, completeMatch[1], { ...body, actorId: session.userId, actorRole: session.role });
+  }
+
   const reorderMatch = url.pathname.match(/^\/api\/drivers\/([^/]+)\/queue\/reorder$/);
   if (req.method === 'POST' && reorderMatch) {
     if (!requireRole(res, session, ['volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
@@ -766,6 +773,41 @@ async function cancelRide(res, rideId, { actorId, expectedRevision, expectedUpda
   await sbRequest(`/rest/v1/rides?id=eq.${rideId}`, {
     method: 'PATCH',
     body: JSON.stringify({ status: 'cancelled' }),
+  });
+  await sbRequest(`/rest/v1/ride_assignments?ride_id=eq.${rideId}`, { method: 'DELETE' });
+
+  await optimizeAndPersistDriverQueues([current.driverId]);
+  return json(res, 200, { ride: await fetchRideById(rideId), rides: await fetchRides(), actorId: actorId ?? null });
+}
+
+async function completeRide(res, rideId, { actorId, actorRole, expectedRevision, expectedUpdatedAt }) {
+  if (Number.isNaN(Number(expectedRevision))) {
+    return json(res, 400, { error: 'expectedRevision is required' });
+  }
+
+  const current = await fetchRideById(rideId);
+  if (!current) return json(res, 404, { error: 'Ride not found' });
+  if (current.status !== 'assigned') {
+    return json(res, 409, { error: 'Only assigned rides can be marked complete.', code: 'ride_not_assigned' });
+  }
+
+  if (actorRole === 'volunteer_driver' && current.driverId !== actorId) {
+    return json(res, 403, { error: 'Drivers can only complete their own assigned stops.' });
+  }
+
+  if (current.revision !== Number(expectedRevision)
+    || (expectedUpdatedAt && current.updatedAt !== expectedUpdatedAt)) {
+    return json(res, 409, {
+      error: 'Ride was updated by another dispatcher. Please refresh and retry.',
+      code: 'stale_ride_version',
+      latestRide: current,
+      rides: await fetchRides(),
+    });
+  }
+
+  await sbRequest(`/rest/v1/rides?id=eq.${rideId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'completed' }),
   });
   await sbRequest(`/rest/v1/ride_assignments?ride_id=eq.${rideId}`, { method: 'DELETE' });
 
