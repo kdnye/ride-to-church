@@ -733,9 +733,13 @@ function writeAudit({ type, actorId, before, after, metadata = {} }) {
 // --- BULLETPROOF HTML ESCAPE ---
 function escapeHtml(value) {
   if (value === null || value === undefined) return '';
-  const div = document.createElement('div');
-  div.textContent = String(value);
-  return div.innerHTML;
+  let escaped = String(value);
+  escaped = escaped.split('&').join('&amp;');
+  escaped = escaped.split('<').join('&lt;');
+  escaped = escaped.split('>').join('&gt;');
+  escaped = escaped.split('"').join('&quot;');
+  escaped = escaped.split("'").join('&#39;');
+  return escaped;
 }
 
 function currentActor() { return state.currentUser; }
