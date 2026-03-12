@@ -1,5 +1,5 @@
 # Build frontend assets, then run server with production-only dependencies.
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -13,6 +13,13 @@ RUN npm run build:client
 
 # Remove dev dependencies after build to keep image lean
 RUN npm prune --omit=dev
+
+# --- Production Image ---
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY --from=builder /app ./
 
 ENV NODE_ENV=production
 ENV PORT=8080
