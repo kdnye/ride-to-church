@@ -279,8 +279,7 @@ async function handleApi(req, res) {
 }
 
 async function fetchUsers() {
-  // Added ::text to the coordinates selection
-  const rows = await sbRequest('/rest/v1/users?select=id,full_name,email,role,approval_status,approved_by,approved_at,daily_ride_capacity,coordinates::text&order=full_name.asc');
+  const rows = await sbRequest('/rest/v1/users?select=id,full_name,email,role,approval_status,approved_by,approved_at,daily_ride_capacity,coordinates&order=full_name.asc');
   return rows.map((row) => ({
     id: row.id,
     fullName: row.full_name,
@@ -297,8 +296,7 @@ async function fetchUsers() {
 }
 
 async function fetchRides() {
-  // Added ::text to the embedded member coordinates selection
-  const rows = await sbRequest('/rest/v1/rides?select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position,travel_time_seconds,estimated_arrival_time,route_polyline),member:users!rides_member_id_fkey(id,full_name,coordinates::text)&order=scheduled_for.asc');
+  const rows = await sbRequest('/rest/v1/rides?select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position,travel_time_seconds,estimated_arrival_time,route_polyline),member:users!rides_member_id_fkey(id,full_name,coordinates)&order=scheduled_for.asc');
 
   return rows.map((row) => {
     const assignment = pickRideAssignment(row.ride_assignments);
@@ -342,7 +340,7 @@ async function fetchDestinations() {
     id: row.id,
     name: row.name,
     address: row.address,
-    coordinates: normalizeDestinationCoordinates(row.coordinates),
+    coordinates: pointToCoordinates(row.coordinates),
     createdAt: row.created_at,
   }));
 }
@@ -350,7 +348,7 @@ async function fetchDestinations() {
 async function createDestination({ name, address, coordinates }) {
   const sanitizedName = `${name ?? ''}`.trim();
   const sanitizedAddress = `${address ?? ''}`.trim();
-  const normalizedCoordinates = normalizeDestinationCoordinates(coordinates);
+  const normalizedCoordinates = pointToCoordinates(coordinates);
 
   if (!sanitizedName || !sanitizedAddress) {
     throw badRequest('name and address are required');
@@ -375,7 +373,7 @@ async function createDestination({ name, address, coordinates }) {
     id: row.id,
     name: row.name,
     address: row.address,
-    coordinates: normalizeDestinationCoordinates(row.coordinates),
+    coordinates: pointToCoordinates(row.coordinates),
     createdAt: row.created_at,
   };
 }
@@ -385,14 +383,6 @@ async function deleteDestination(destinationId) {
     method: 'DELETE',
     headers: { Prefer: 'return=minimal' },
   });
-}
-
-function normalizeDestinationCoordinates(coordinates) {
-  if (!coordinates || typeof coordinates !== 'object') return null;
-  const lat = Number(coordinates.lat);
-  const lon = Number(coordinates.lon);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return { lat, lon };
 }
 
 function badRequest(message) {
@@ -731,8 +721,7 @@ async function autoAssign(actorId, maxRidesPerDriver, destinationCoordinates) {
 }
 
 async function fetchDriverQueue(driverId) {
-  // Added ::text to the driver and member embedded coordinates
-  const rows = await sbRequest(`/rest/v1/ride_assignments?driver_id=eq.${driverId}&select=queue_position,travel_time_seconds,estimated_arrival_time,route_polyline,driver:users!ride_assignments_driver_id_fkey(id,coordinates::text),ride:rides(id,member_id,scheduled_for,pickup_notes,status,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,member:users!rides_member_id_fkey(id,full_name,coordinates::text))&order=queue_position.asc`);
+  const rows = await sbRequest(`/rest/v1/ride_assignments?driver_id=eq.${driverId}&select=queue_position,travel_time_seconds,estimated_arrival_time,route_polyline,driver:users!ride_assignments_driver_id_fkey(id,coordinates),ride:rides(id,member_id,scheduled_for,pickup_notes,status,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,member:users!rides_member_id_fkey(id,full_name,coordinates))&order=queue_position.asc`);
 
   return rows
     .filter((row) => row.ride?.status === 'assigned')
@@ -825,8 +814,7 @@ async function optimizeAndPersistDriverQueues(driverIds, destinationCoordinates)
 }
 
 async function fetchUserById(userId) {
-  // Added ::text to the coordinates selection
-  const rows = await sbRequest(`/rest/v1/users?id=eq.${userId}&select=id,coordinates::text&limit=1`);
+  const rows = await sbRequest(`/rest/v1/users?id=eq.${userId}&select=id,coordinates&limit=1`);
   const row = rows[0];
   if (!row) return null;
   return { id: row.id, coordinates: pointToCoordinates(row.coordinates) };
