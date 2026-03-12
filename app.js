@@ -2,9 +2,6 @@ import { autoAssignRides, nearestDrivers } from './logic.js';
 import { createClient } from '@supabase/supabase-js';
 import { apiClient } from './src/apiClient.js';
 import { isGeolocationDenialOrTimeout } from './src/geolocation.js';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
-window.L = L;
 
 const SETTINGS_STORAGE_KEY = 'rtc-settings-v3';
 
@@ -72,9 +69,57 @@ const realtime = {
   isRefreshQueued: false,
 };
 
+let publicConfigCache = null;
+async function getPublicConfig() {
+  if (publicConfigCache) return publicConfigCache;
+  try {
+    const response = await fetch('/api/public-config');
+    publicConfigCache = response.ok ? await response.json() : {};
+  } catch {
+    publicConfigCache = {};
+  }
+  return publicConfigCache;
+}
+
+let googleMapsLoaderPromise = null;
+async function loadGoogleMaps() {
+  if (window.google?.maps) return true;
+
+  const config = await getPublicConfig();
+  if (!config?.googleMapsApiKey) return false;
+
+  if (!googleMapsLoaderPromise) {
+    googleMapsLoaderPromise = new Promise((resolve, reject) => {
+      const existingScript = document.querySelector('script[data-google-maps-loader="true"]');
+      if (existingScript) {
+        existingScript.addEventListener('load', () => resolve(true), { once: true });
+        existingScript.addEventListener('error', () => reject(new Error('Google Maps failed to load.')), { once: true });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(config.googleMapsApiKey)}&libraries=places,geometry`;
+      script.async = true;
+      script.defer = true;
+      script.dataset.googleMapsLoader = 'true';
+      script.onload = () => resolve(true);
+      script.onerror = () => reject(new Error('Google Maps failed to load.'));
+      document.head.appendChild(script);
+    }).catch((error) => {
+      googleMapsLoaderPromise = null;
+      console.error(error);
+      return false;
+    });
+  }
+
+  return googleMapsLoaderPromise;
+}
+
 const mapState = {
-  dispatch: { map: null, layers: null },
-  driver: { map: null, layers: null },
+  dispatchMap: null,
+  driverMap: null,
+  markers: { dispatch: [], driver: [] },
+  polylines: { driver: [] },
 };
 
 function normalizeCoordinates(rawCoordinates) {
@@ -92,29 +137,42 @@ function effectiveCapacity(driver) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : state.settings.maxRidesPerDriver;
 }
 
-function initMap(containerId, mapKey) {
-  const container = document.getElementById(containerId);
-  if (!container || mapState[mapKey].map) return mapState[mapKey].map;
+function clearMap(layerKey) {
+  mapState.markers[layerKey].forEach((marker) => marker.setMap(null));
+  mapState.markers[layerKey] = [];
 
-  const map = L.map(containerId);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors',
-  }).addTo(map);
+  if (layerKey === 'driver') {
+    mapState.polylines.driver.forEach((polyline) => polyline.setMap(null));
+    mapState.polylines.driver = [];
+  }
+}
 
-  map.setView([39.8283, -98.5795], 4);
+async function initMap(containerId, stateKey) {
+  if (mapState[stateKey]) return mapState[stateKey];
 
-  mapState[mapKey].map = map;
-  mapState[mapKey].layers = L.layerGroup().addTo(map);
+  const mapEl = document.getElementById(containerId);
+  if (!mapEl) return null;
+
+  const loaded = await loadGoogleMaps();
+  if (!loaded || !window.google?.maps) return null;
+
+  const map = new google.maps.Map(mapEl, {
+    center: { lat: 32.2226, lng: -110.9747 },
+    zoom: 11,
+    mapTypeControl: false,
+    streetViewControl: false,
+  });
+
+  mapState[stateKey] = map;
   return map;
 }
 
 function invalidateVisibleMap(hash = window.location.hash || '#/profile') {
-  if (hash === '#/dispatch' && mapState.dispatch.map) {
-    setTimeout(() => mapState.dispatch.map.invalidateSize(), 0);
+  if (hash === '#/dispatch' && mapState.dispatchMap && window.google?.maps?.event) {
+    setTimeout(() => google.maps.event.trigger(mapState.dispatchMap, 'resize'), 0);
   }
-  if (hash === '#/drive' && mapState.driver.map) {
-    setTimeout(() => mapState.driver.map.invalidateSize(), 0);
+  if (hash === '#/drive' && mapState.driverMap && window.google?.maps?.event) {
+    setTimeout(() => google.maps.event.trigger(mapState.driverMap, 'resize'), 0);
   }
 }
 
@@ -335,8 +393,8 @@ async function initRideRealtimeSubscription() {
     window.__rtcRealtimeCleanup();
   }
 
-  const config = await loadPublicSupabaseConfig();
-  if (!config) return;
+  const config = await getPublicConfig();
+  if (!config?.supabaseUrl || !config?.supabaseAnonKey) return;
 
   realtime.client = createClient(config.supabaseUrl, config.supabaseAnonKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -356,16 +414,6 @@ async function initRideRealtimeSubscription() {
   window.addEventListener('beforeunload', cleanupRealtimeSubscription, { once: true });
   window.addEventListener('pagehide', cleanupRealtimeSubscription, { once: true });
   window.__rtcRealtimeCleanup = cleanupRealtimeSubscription;
-}
-
-async function loadPublicSupabaseConfig() {
-  try {
-    const response = await fetch('/api/public-config');
-    if (!response.ok) return null;
-    const config = await response.json();
-    if (!config?.supabaseUrl || !config?.supabaseAnonKey) return null;
-    return config;
-  } catch { return null; }
 }
 
 function isDispatcherBoardRelevantChange(payload) {
@@ -642,53 +690,58 @@ function renderBoard() {
   renderDispatchMap();
 }
 
-function renderDispatchMap() {
-  const map = initMap('dispatch-map', 'dispatch');
-  if (!map || !mapState.dispatch.layers) return;
+async function renderDispatchMap() {
+  const map = await initMap('dispatch-map', 'dispatchMap');
+  if (!map || !window.google?.maps) return;
 
-  const layers = mapState.dispatch.layers;
-  layers.clearLayers();
-  const boundsPoints = [];
+  clearMap('dispatch');
+  const bounds = new google.maps.LatLngBounds();
 
   const approvedDrivers = state.users.filter((u) => u.role === 'volunteer_driver' && u.approval_status === 'approved');
-  for (const driver of approvedDrivers) {
+  approvedDrivers.forEach((driver) => {
     const coordinates = normalizeCoordinates(driver.coordinates);
-    if (!coordinates) continue;
-    const marker = L.circleMarker([coordinates.lat, coordinates.lon], {
-      radius: 7,
-      color: '#0b3a75',
-      fillColor: '#0b3a75',
-      fillOpacity: 0.8,
-    }).bindPopup(
-      `<strong>${escapeHtml(driver.fullName || 'Driver')}</strong><br/>Status: Approved driver<br/>Effective capacity: ${effectiveCapacity(driver)}`,
-    );
-    marker.addTo(layers);
-    boundsPoints.push([coordinates.lat, coordinates.lon]);
-  }
+    if (!coordinates) return;
+
+    const position = { lat: coordinates.lat, lng: coordinates.lon };
+    const marker = new google.maps.Marker({
+      position,
+      map,
+      title: driver.fullName || 'Driver',
+      icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+    });
+    const infoWindow = new google.maps.InfoWindow({
+      content: `<strong>${escapeHtml(driver.fullName || 'Driver')}</strong><br/>Status: Approved driver<br/>Effective capacity: ${effectiveCapacity(driver)}`,
+    });
+    marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
+    mapState.markers.dispatch.push(marker);
+    bounds.extend(position);
+  });
 
   const boardRides = state.rides.filter((ride) => ride.status === 'requested' || ride.status === 'assigned');
-  for (const ride of boardRides) {
+  boardRides.forEach((ride) => {
     const member = state.users.find((u) => u.id === ride.memberId);
     const coordinates = normalizeCoordinates(member?.coordinates);
-    if (!coordinates) continue;
+    if (!coordinates) return;
 
     const assignedDriver = state.users.find((u) => u.id === ride.driverId);
-    const markerColor = ride.status === 'assigned' ? '#2e7d32' : '#ef6c00';
-    const marker = L.circleMarker([coordinates.lat, coordinates.lon], {
-      radius: 6,
-      color: markerColor,
-      fillColor: markerColor,
-      fillOpacity: 0.85,
-    }).bindPopup(
-      `<strong>${escapeHtml(member?.fullName || 'Unknown member')}</strong><br/>Status: ${escapeHtml(ride.status)}<br/>Effective capacity: ${effectiveCapacity(assignedDriver)}`,
-    );
-    marker.addTo(layers);
-    boundsPoints.push([coordinates.lat, coordinates.lon]);
-  }
+    const position = { lat: coordinates.lat, lng: coordinates.lon };
+    const marker = new google.maps.Marker({
+      position,
+      map,
+      title: member?.fullName || 'Unknown member',
+      icon: ride.status === 'assigned'
+        ? 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'
+        : 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
+    });
+    const infoWindow = new google.maps.InfoWindow({
+      content: `<strong>${escapeHtml(member?.fullName || 'Unknown member')}</strong><br/>Status: ${escapeHtml(ride.status)}<br/>Effective capacity: ${effectiveCapacity(assignedDriver)}`,
+    });
+    marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
+    mapState.markers.dispatch.push(marker);
+    bounds.extend(position);
+  });
 
-  if (boundsPoints.length > 0) {
-    map.fitBounds(boundsPoints, { padding: [24, 24], maxZoom: 14 });
-  }
+  if (!bounds.isEmpty()) map.fitBounds(bounds);
 }
 
 function renderDestinations() {
@@ -781,11 +834,10 @@ async function renderDriverQueue() {
 }
 
 async function renderDriverMap(driverId, prefetchedQueue = null) {
-  const map = initMap('driver-map', 'driver');
-  if (!map || !mapState.driver.layers) return;
+  const map = await initMap('driver-map', 'driverMap');
+  if (!map || !window.google?.maps) return;
 
-  const layers = mapState.driver.layers;
-  layers.clearLayers();
+  clearMap('driver');
 
   if (!driverId) return;
 
@@ -800,31 +852,47 @@ async function renderDriverMap(driverId, prefetchedQueue = null) {
 
   if (!Array.isArray(queue) || queue.length === 0) return;
 
-  const boundsPoints = [];
+  const bounds = new google.maps.LatLngBounds();
   for (const item of queue) {
     const coordinates = normalizeCoordinates(item?.member?.coordinates);
     if (!coordinates) continue;
 
-    const stopMarker = L.marker([coordinates.lat, coordinates.lon]).bindPopup(
-      `<strong>${escapeHtml(item?.member?.fullName || 'Unknown member')}</strong><br/>Status: ${escapeHtml(item?.status || 'assigned')}<br/>Stop ${escapeHtml(item?.queueOrder ?? '-')}`,
-    );
-    stopMarker.addTo(layers);
-    boundsPoints.push([coordinates.lat, coordinates.lon]);
+    const position = { lat: coordinates.lat, lng: coordinates.lon };
+    const marker = new google.maps.Marker({
+      position,
+      map,
+      label: String(item?.queueOrder ?? ''),
+      title: item?.member?.fullName || 'Unknown member',
+    });
+    const infoWindow = new google.maps.InfoWindow({
+      content: `<strong>Stop ${escapeHtml(item?.queueOrder ?? '-')}: ${escapeHtml(item?.member?.fullName || 'Unknown member')}</strong><br/>${escapeHtml(item?.pickupNotes) || 'No notes'}`,
+    });
+    marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
+    mapState.markers.driver.push(marker);
+    bounds.extend(position);
 
-    if (Array.isArray(item.routePolyline) && item.routePolyline.length > 1) {
-      const polylinePoints = item.routePolyline
-        .map((point) => normalizeCoordinates(point))
-        .filter(Boolean)
-        .map((point) => [point.lat, point.lon]);
-      if (polylinePoints.length > 1) {
-        L.polyline(polylinePoints, { color: '#1565c0', weight: 4, opacity: 0.75 }).addTo(layers);
-        boundsPoints.push(...polylinePoints);
+    if (typeof item.routePolyline === 'string' && window.google?.maps?.geometry?.encoding) {
+      const path = google.maps.geometry.encoding.decodePath(item.routePolyline);
+      if (path.length > 1) {
+        const polyline = new google.maps.Polyline({
+          path,
+          geodesic: true,
+          strokeColor: '#0b3a75',
+          strokeOpacity: 0.8,
+          strokeWeight: 4,
+          map,
+        });
+        mapState.polylines.driver.push(polyline);
+
+        path.forEach((point) => bounds.extend(point));
       }
     }
   }
 
-  if (boundsPoints.length > 0) {
-    map.fitBounds(boundsPoints, { padding: [24, 24], maxZoom: 14 });
+  if (!bounds.isEmpty()) {
+    map.fitBounds(bounds);
+    const zoom = map.getZoom();
+    if (zoom > 16) map.setZoom(16);
   }
 }
 

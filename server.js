@@ -126,6 +126,7 @@ async function handleApi(req, res) {
     return json(res, 200, {
       supabaseUrl: SUPABASE_URL || null,
       supabaseAnonKey: SUPABASE_ANON_KEY || null,
+      googleMapsApiKey: GOOGLE_MAPS_API_KEY || null,
     });
   }
 
@@ -1031,7 +1032,7 @@ function isSecureRequest(req) {
 function securityHeaders() {
   return {
     'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
-    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self' wss: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://maps.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://maps.gstatic.com https://*.googleapis.com https://*.ggpht.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' wss: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
     'X-Frame-Options': 'DENY',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
