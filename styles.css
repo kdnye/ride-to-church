@@ -132,3 +132,12 @@ nav#main-nav a.active {
 .page-view.active {
   display: block;
 }
+
+.map-container {
+  height: 320px;
+  border: 1px solid #c8d0dd;
+  border-radius: 8px;
+  margin-top: 1rem;
+  width: 100%;
+  z-index: 0;
+}
