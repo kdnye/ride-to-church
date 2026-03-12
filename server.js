@@ -97,6 +97,9 @@ const server = http.createServer(async (req, res) => {
     }
     await serveStatic(req, res);
   } catch (error) {
+    if (error?.status) {
+      return json(res, error.status, { error: error.message, ...(error.details ? { details: error.details } : {}) });
+    }
     json(res, 500, { error: error.message });
   }
 });
@@ -668,6 +671,7 @@ async function autoAssign(actorId, maxRidesPerDriver, destinationCoordinates) {
       touchedDriverIds.add(ride.driverId);
       await sbRequest(`/rest/v1/rides?id=eq.${ride.id}`, {
         method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
         body: JSON.stringify({ status: 'assigned' }),
       });
 
@@ -928,14 +932,16 @@ async function readJson(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   if (chunks.length === 0) return {};
-  
-  const bodyText = Buffer.concat(chunks).toString('utf8');
+
+  const bodyText = Buffer.concat(chunks).toString('utf8').trim();
+  if (!bodyText) return {};
+
   try {
     return JSON.parse(bodyText);
   } catch (error) {
-    console.error('🚨 CRITICAL JSON PARSE ERROR!');
-    console.error('The server received this invalid string:', bodyText);
-    throw new Error(`Malformed JSON payload: ${error.message}`);
+    const parseError = badRequest(`Malformed JSON payload: ${error.message}`);
+    parseError.details = { bodyText };
+    throw parseError;
   }
 }
 

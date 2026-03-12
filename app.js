@@ -468,13 +468,19 @@ async function onAutoAssign() {
 
   try {
     const destinationId = document.querySelector('#dispatch-destination')?.value;
-    const destinationCoordinates = state.destinations.find(d => d.id === destinationId)?.coordinates || null;
+    const selectedDestination = state.destinations.find((d) => d.id === destinationId);
+    const destinationCoordinates = selectedDestination?.coordinates
+      ? {
+          lat: Number(selectedDestination.coordinates.lat),
+          lon: Number(selectedDestination.coordinates.lon),
+        }
+      : null;
 
     // Send it to the backend!
     const response = await apiClient.autoAssign({
       actorId: currentActor().id,
       maxRidesPerDriver: state.settings.maxRidesPerDriver,
-      destinationCoordinates: destinationCoordinates 
+      destinationCoordinates,
     });
     
     state.rides = response.rides;
