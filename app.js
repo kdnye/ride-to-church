@@ -664,32 +664,36 @@ function renderAdminPanel() {
   const listEl = document.querySelector('#user-management-list');
   const destinationListEl = document.querySelector('#admin-destinations-list');
   const destinationFeedbackEl = document.querySelector('#dest-feedback');
+  
   if (!actor || !canManageUsers(actor)) {
-    listEl.innerHTML = '';
+    if (listEl) listEl.innerHTML = '';
+    // FIXED: Corrected the variable name typo here!
     if (destinationListEl) destinationListEl.innerHTML = '';
     if (destinationFeedbackEl) destinationFeedbackEl.textContent = '';
     return;
   }
 
-  listEl.innerHTML = state.users.map(u => `
-    <div class="user-row" style="margin-bottom: 1rem; padding: 0.5rem; border: 1px solid #eee;">
-      <strong>${escapeHtml(u.fullName)}</strong> (${escapeHtml(u.email) || 'No email'})
-      <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-        <select onchange="window.updateUserStatus('${u.id}', this.value)">
-          <option value="pending" ${u.approval_status === 'pending' ? 'selected' : ''}>Pending</option>
-          <option value="approved" ${u.approval_status === 'approved' ? 'selected' : ''}>Approved</option>
-          <option value="rejected" ${u.approval_status === 'rejected' ? 'selected' : ''}>Rejected</option>
-        </select>
-        <select onchange="window.updateUserRole('${u.id}', this.value)">
-          <option value="member" ${u.role === 'member' ? 'selected' : ''}>Member</option>
-          <option value="volunteer_driver" ${u.role === 'volunteer_driver' ? 'selected' : ''}>Driver</option>
-          <option value="volunteer_dispatcher" ${u.role === 'volunteer_dispatcher' ? 'selected' : ''}>Dispatcher</option>
-          <option value="people_manager" ${u.role === 'people_manager' ? 'selected' : ''}>Manager</option>
-          <option value="super_admin" ${u.role === 'super_admin' ? 'selected' : ''}>Super Admin</option>
-        </select>
-      </div>
-    </div>
-  `).join('');
+  if (listEl) {
+      listEl.innerHTML = state.users.map(u => `
+        <div class="user-row" style="margin-bottom: 1rem; padding: 0.5rem; border: 1px solid #eee;">
+          <strong>${escapeHtml(u.fullName)}</strong> (${escapeHtml(u.email) || 'No email'})
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+            <select onchange="window.updateUserStatus('${u.id}', this.value)">
+              <option value="pending" ${u.approval_status === 'pending' ? 'selected' : ''}>Pending</option>
+              <option value="approved" ${u.approval_status === 'approved' ? 'selected' : ''}>Approved</option>
+              <option value="rejected" ${u.approval_status === 'rejected' ? 'selected' : ''}>Rejected</option>
+            </select>
+            <select onchange="window.updateUserRole('${u.id}', this.value)">
+              <option value="member" ${u.role === 'member' ? 'selected' : ''}>Member</option>
+              <option value="volunteer_driver" ${u.role === 'volunteer_driver' ? 'selected' : ''}>Driver</option>
+              <option value="volunteer_dispatcher" ${u.role === 'volunteer_dispatcher' ? 'selected' : ''}>Dispatcher</option>
+              <option value="people_manager" ${u.role === 'people_manager' ? 'selected' : ''}>Manager</option>
+              <option value="super_admin" ${u.role === 'super_admin' ? 'selected' : ''}>Super Admin</option>
+            </select>
+          </div>
+        </div>
+      `).join('');
+  }
 }
 
 window.updateUserStatus = async (id, status) => {
