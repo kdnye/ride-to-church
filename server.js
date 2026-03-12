@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -21,7 +22,9 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const publicRoot = path.join(__dirname);
+const distRoot = path.join(__dirname, 'dist');
+const sourceRoot = path.join(__dirname);
+const publicRoot = existsSync(path.join(distRoot, 'index.html')) ? distRoot : sourceRoot;
 const PORT = Number(process.env.PORT || 4173);
 const NODE_ENV = process.env.NODE_ENV ?? 'development';
 const SESSION_SECRET = process.env.SESSION_SECRET;

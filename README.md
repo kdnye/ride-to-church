@@ -45,6 +45,7 @@ Required values:
 
 ```bash
 npm install
+npm run build:client
 npm start
 ```
 
@@ -102,13 +103,23 @@ Notifications (server-side secret storage only):
 
 ### Run locally
 
+Build front-end assets once (or whenever front-end code changes), then run the server:
+
 ```bash
+npm run build:client
 npm start
+```
+
+For front-end-only development with hot reload:
+
+```bash
+npm run dev:client
 ```
 
 ### Production start / deployment targets
 
 ```bash
+npm run build:client
 npm run start:prod
 npm run deploy:managed
 npm run deploy:tls
