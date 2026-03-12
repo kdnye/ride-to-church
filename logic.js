@@ -265,6 +265,7 @@ function routeCost(
   queue,
   {
     startCoordinates,
+    destinationCoordinates,
     speedKmh = DEFAULT_SPEED_KMH,
     travelTimeLookup,
   } = {},
@@ -303,6 +304,10 @@ function routeCost(
     total += serviceMinutes * 0.05;
     timeCursor += serviceMinutes;
     current = memberCoordinates;
+  }
+
+  if (destinationCoordinates && current) {
+    total += haversineDistanceKm(current, destinationCoordinates);
   }
 
   return total;
@@ -366,6 +371,7 @@ function twoOpt(queue, options) {
 export function optimizeDriverQueue({
   rides,
   driverCoordinates,
+  destinationCoordinates,
   speedKmh = DEFAULT_SPEED_KMH,
   travelTimeLookup,
 }) {
@@ -377,6 +383,7 @@ export function optimizeDriverQueue({
   const seeded = nearestNeighborSeed(assigned, driverCoordinates);
   const optimized = twoOpt(seeded, {
     startCoordinates: driverCoordinates,
+    destinationCoordinates,
     speedKmh,
     travelTimeLookup,
   });

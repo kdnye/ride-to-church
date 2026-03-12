@@ -149,7 +149,11 @@ async function handleApi(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/rides/auto-assign') {
     if (!requireRole(res, session, ['volunteer_dispatcher', 'people_manager', 'super_admin'])) return;
     const body = await readJson(req);
-    return json(res, 200, await autoAssign(session.userId, body.maxRidesPerDriver ?? Infinity));
+    return json(res, 200, await autoAssign(
+      session.userId,
+      body.maxRidesPerDriver ?? Infinity,
+      body.destinationCoordinates ?? null,
+    ));
   }
 
   const assignMatch = url.pathname.match(/^\/api\/rides\/([^/]+)\/assign$/);
@@ -509,7 +513,7 @@ async function hydrateDriverTravelTimes(driverCoordinates, queue) {
   });
 }
 
-async function autoAssign(actorId, maxRidesPerDriver) {
+async function autoAssign(actorId, maxRidesPerDriver, destinationCoordinates) {
   const users = await fetchUsers();
   const rides = await fetchRides();
   const travelTimeSecondsByMemberDriver = await buildMemberDriverTravelTimes(rides, users);
@@ -545,7 +549,7 @@ async function autoAssign(actorId, maxRidesPerDriver) {
       });
     }));
 
-  await optimizeAndPersistDriverQueues([...touchedDriverIds]);
+  await optimizeAndPersistDriverQueues([...touchedDriverIds], destinationCoordinates);
   return { assignments, rides: await fetchRides() };
 }
 
@@ -602,7 +606,7 @@ async function cancelRide(res, rideId, { actorId, expectedRevision, expectedUpda
   return json(res, 200, { ride: await fetchRideById(rideId), rides: await fetchRides(), actorId: actorId ?? null });
 }
 
-async function optimizeAndPersistDriverQueues(driverIds) {
+async function optimizeAndPersistDriverQueues(driverIds, destinationCoordinates) {
   const uniqueDriverIds = [...new Set((driverIds || []).filter(Boolean))];
   await Promise.all(uniqueDriverIds.map(async (driverId) => {
     const queue = await fetchDriverQueue(driverId);
@@ -616,6 +620,7 @@ async function optimizeAndPersistDriverQueues(driverIds) {
     const optimized = optimizeDriverQueue({
       rides: queue,
       driverCoordinates,
+      destinationCoordinates,
       travelTimeLookup,
     });
 
