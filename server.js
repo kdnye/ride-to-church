@@ -26,7 +26,14 @@ const distRoot = path.join(__dirname, 'dist');
 const sourceRoot = path.join(__dirname);
 const hasDistBuild = existsSync(path.join(distRoot, 'index.html'));
 const publicRoot = hasDistBuild ? distRoot : sourceRoot;
-const FALLBACK_PUBLIC_FILES = new Set(['index.html', 'app.js', 'styles.css']);
+const FALLBACK_PUBLIC_FILES = new Set([
+  'index.html',
+  'app.js',
+  'styles.css',
+  'logic.js',
+  'src/apiClient.js',
+  'src/geolocation.js',
+]);
 const FALLBACK_PUBLIC_DIRS = ['assets', 'public', 'images', 'fonts']
   .filter((dir) => existsSync(path.join(sourceRoot, dir)));
 const PORT = Number(process.env.PORT || 4173);
@@ -862,12 +869,13 @@ async function serveStatic(req, res) {
     return json(res, 400, { error: 'Invalid URL path encoding' });
   }
 
-  const normalizedPath = path.normalize(decodedPath);
-  if (normalizedPath.includes('..')) {
+  const slashNormalizedPath = decodedPath.replace(/\\/g, '/');
+  if (slashNormalizedPath.split('/').includes('..')) {
     return json(res, 403, { error: 'Forbidden' });
   }
 
-  const relativePath = normalizedPath.replace(/^[/\\]+/, '');
+  const normalizedPath = path.posix.normalize(slashNormalizedPath);
+  const relativePath = normalizedPath.replace(/^\/+/, '');
 
   if (!hasDistBuild && !isAllowedFallbackAsset(relativePath)) {
     return json(res, 403, { error: 'Forbidden' });
