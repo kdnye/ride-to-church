@@ -835,10 +835,39 @@ function renderAdminPanel() {
   const destinationFeedbackEl = document.querySelector('#dest-feedback');
   
   if (!actor || !canManageUsers(actor)) {
+    const resetButton = document.querySelector('#reset-test-data');
+    if (resetButton) resetButton.remove();
     if (listEl) listEl.innerHTML = '';
     if (destinationListEl) destinationListEl.innerHTML = '';
     if (destinationFeedbackEl) destinationFeedbackEl.textContent = '';
     return;
+  }
+
+  if (listEl && !document.querySelector('#reset-test-data')) {
+    listEl.insertAdjacentHTML('beforebegin', `
+      <button id="reset-test-data" style="background: #f57c00; margin-bottom: 1rem;">
+        Reset &amp; Load Dummy Rides
+      </button>
+    `);
+  }
+
+  const resetButton = document.querySelector('#reset-test-data');
+  if (resetButton) {
+    resetButton.onclick = async () => {
+      if (!confirm('Wipe all rides and load test data?')) return;
+      resetButton.disabled = true;
+      resetButton.textContent = 'Resetting...';
+      try {
+        await apiClient.resetRides();
+        await hydrateState();
+        refreshAll();
+      } catch (error) {
+        window.alert(error.message || 'Failed to reset test data');
+      } finally {
+        resetButton.disabled = false;
+        resetButton.textContent = 'Reset & Load Dummy Rides';
+      }
+    };
   }
 
   if (listEl) {
