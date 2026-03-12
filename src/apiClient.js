@@ -24,6 +24,14 @@ function normalizeQueueItem(item) {
   };
 }
 
+function normalizeDestinationCoordinates(coordinates) {
+  if (!coordinates || typeof coordinates !== 'object') return null;
+  const lat = Number(coordinates.lat);
+  const lon = Number(coordinates.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
+}
+
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
@@ -99,10 +107,17 @@ export const apiClient = {
       throw error;
     }
   },
-  async autoAssign(payload) {
+  async autoAssign(payload = {}) {
+    const parsedMaxRides = Number(payload.maxRidesPerDriver);
+    const cleanPayload = {
+      actorId: payload.actorId ?? null,
+      maxRidesPerDriver: Number.isFinite(parsedMaxRides) && parsedMaxRides > 0 ? parsedMaxRides : undefined,
+      destinationCoordinates: normalizeDestinationCoordinates(payload.destinationCoordinates),
+    };
+
     return request('/rides/auto-assign', {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify(cleanPayload),
     });
   },
 
