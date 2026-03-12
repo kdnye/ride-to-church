@@ -47,11 +47,34 @@ async function postMatrix({ origins, destinations, apiKey, timeoutMs = DEFAULT_T
       throw new Error(`Google Route Matrix failed (${response.status}): ${text.slice(0, 240)}`);
     }
 
-    return text
+    const normalized = text.trim().replace(/^\)\]\}'\s*/, '');
+    if (!normalized) return [];
+
+    try {
+      const parsed = JSON.parse(normalized);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && typeof parsed === 'object') return [parsed];
+    } catch {
+      // Fallback to newline-delimited parsing used by computeRouteMatrix.
+    }
+
+    const rows = [];
+    for (const line of normalized
       .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
+      .map((value) => value.trim())
+      .filter(Boolean)) {
+      try {
+        rows.push(JSON.parse(line));
+      } catch {
+        // Some providers prepend non-JSON lines; skip them and keep parsing.
+      }
+    }
+
+    if (!rows.length) {
+      throw new Error(`Google Route Matrix returned an unparseable payload: ${normalized.slice(0, 240)}`);
+    }
+
+    return rows;
   } finally {
     clearTimeout(timeout);
   }
@@ -76,7 +99,14 @@ export async function getRouteMatrixDurationsSeconds({ origins, destinations, ap
 
   if (!hasMissingCache) return entries;
 
-  const matrixRows = await postMatrix({ origins, destinations, apiKey });
+  let matrixRows = [];
+  try {
+    matrixRows = await postMatrix({ origins, destinations, apiKey });
+  } catch (error) {
+    console.warn('Route matrix request failed; continuing with cached travel times only.', error);
+    return entries;
+  }
+
   for (const row of matrixRows) {
     if (row?.status?.code && row.status.code !== 0) continue;
     const durationSeconds = parseDurationSeconds(row.duration);
