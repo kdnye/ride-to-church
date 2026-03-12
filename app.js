@@ -735,14 +735,11 @@ function writeAudit({ type, actorId, before, after, metadata = {} }) {
 
 // --- BULLETPROOF HTML ESCAPE ---
 function escapeHtml(value) {
-  if (value === null || value === undefined) return "";
-
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  if (value === null || value === undefined) return '';
+  const textNode = document.createTextNode(String(value));
+  const div = document.createElement('div');
+  div.appendChild(textNode);
+  return div.innerHTML;
 }
 
 function currentActor() { return state.currentUser; }
