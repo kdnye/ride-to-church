@@ -130,6 +130,10 @@ function normalizeCoordinates(rawCoordinates) {
   return { lat, lon };
 }
 
+function approvalStatus(user) {
+  return user?.approval_status ?? user?.approvalStatus ?? null;
+}
+
 function effectiveCapacity(driver) {
   if (!driver || typeof driver !== 'object') return state.settings.maxRidesPerDriver;
   const raw = driver.daily_ride_capacity ?? driver.dailyRideCapacity;
@@ -717,7 +721,7 @@ async function renderDispatchMap() {
   });
 
   state.users
-    .filter((u) => u.role === 'volunteer_driver' && u.approval_status === 'approved')
+    .filter((u) => u.role === 'volunteer_driver' && approvalStatus(u) === 'approved')
     .forEach((driver) => {
       const coordinates = normalizeCoordinates(driver.coordinates);
       if (!coordinates) return;
@@ -737,24 +741,37 @@ async function renderDispatchMap() {
       bounds.extend(position);
     });
 
+  const activeRideByMemberId = new Map();
   state.rides
     .filter((ride) => ride.status === 'requested' || ride.status === 'assigned')
     .forEach((ride) => {
-      const member = state.users.find((u) => u.id === ride.memberId);
-      const coordinates = normalizeCoordinates(member?.coordinates);
+      const current = activeRideByMemberId.get(ride.memberId);
+      if (!current || ride.status === 'assigned') {
+        activeRideByMemberId.set(ride.memberId, ride);
+      }
+    });
+
+  state.users
+    .filter((u) => u.role === 'member' && approvalStatus(u) === 'approved')
+    .forEach((member) => {
+      const coordinates = normalizeCoordinates(member.coordinates);
       if (!coordinates) return;
 
+      const activeRide = activeRideByMemberId.get(member.id);
+      const statusLabel = activeRide?.status ?? 'no active ride';
       const position = { lat: coordinates.lat, lng: coordinates.lon };
       const marker = new google.maps.Marker({
         position,
         map,
-        title: member?.fullName || 'Unknown member',
-        icon: ride.status === 'assigned'
+        title: member.fullName || 'Member',
+        icon: activeRide?.status === 'assigned'
           ? 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'
-          : 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
+          : activeRide?.status === 'requested'
+            ? 'https://maps.google.com/mapfiles/ms/icons/red-dot.png'
+            : 'https://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
       });
       const infoWindow = new google.maps.InfoWindow({
-        content: `<strong>${escapeHtml(member?.fullName || 'Unknown member')}</strong><br/>Status: ${escapeHtml(ride.status)}`,
+        content: `<strong>${escapeHtml(member.fullName || 'Member')}</strong><br/>Status: ${escapeHtml(statusLabel)}`,
       });
       marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
       mapState.markers.dispatch.push(marker);
