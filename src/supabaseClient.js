@@ -5,33 +5,33 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.');
 }
 
-export async function sbRequest(endpoint, options = {}) {
-  const response = await fetch(`${SUPABASE_URL}${endpoint}`, {
+export async function sbRequest(path, options = {}) {
+  const res = await fetch(`${SUPABASE_URL}${path}`, {
     ...options,
     headers: {
+      'Content-Type': 'application/json',
       apikey: SUPABASE_SERVICE_ROLE_KEY,
       Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json',
       ...options.headers,
     },
   });
 
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-
-  if (!response.ok) {
-    const error = new Error(data?.message ?? `Supabase request failed (${response.status})`);
-    error.status = response.status;
-    error.code = data?.code;
-    error.details = data?.details;
-    error.hint = data?.hint;
-    error.payload = data;
-    throw error;
+  const text = await res.text();
+  
+  if (!res.ok) {
+    // If Supabase returns an error, safely throw it
+    throw new Error(text);
   }
-
-  return data;
+  
+  // Safely parse the text only if it exists
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Supabase returned invalid JSON:", text);
+    throw new Error("Failed to parse database response");
+  }
 }
-
 
 export async function createSession({ id, userId, role, approvalStatus, expiresAt }) {
   const rows = await sbRequest('/rest/v1/sessions', {
