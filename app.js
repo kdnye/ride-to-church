@@ -697,49 +697,69 @@ async function renderDispatchMap() {
   clearMap('dispatch');
   const bounds = new google.maps.LatLngBounds();
 
-  const approvedDrivers = state.users.filter((u) => u.role === 'volunteer_driver' && u.approval_status === 'approved');
-  approvedDrivers.forEach((driver) => {
-    const coordinates = normalizeCoordinates(driver.coordinates);
+  state.destinations.forEach((destination) => {
+    const coordinates = normalizeCoordinates(destination.coordinates);
     if (!coordinates) return;
 
     const position = { lat: coordinates.lat, lng: coordinates.lon };
     const marker = new google.maps.Marker({
       position,
       map,
-      title: driver.fullName || 'Driver',
-      icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+      title: destination.name || 'Destination',
+      icon: 'https://maps.google.com/mapfiles/ms/icons/purple-dot.png',
     });
     const infoWindow = new google.maps.InfoWindow({
-      content: `<strong>${escapeHtml(driver.fullName || 'Driver')}</strong><br/>Status: Approved driver<br/>Effective capacity: ${effectiveCapacity(driver)}`,
+      content: `<strong>${escapeHtml(destination.name || 'Destination')}</strong><br/>Destination`,
     });
     marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
     mapState.markers.dispatch.push(marker);
     bounds.extend(position);
   });
 
-  const boardRides = state.rides.filter((ride) => ride.status === 'requested' || ride.status === 'assigned');
-  boardRides.forEach((ride) => {
-    const member = state.users.find((u) => u.id === ride.memberId);
-    const coordinates = normalizeCoordinates(member?.coordinates);
-    if (!coordinates) return;
+  state.users
+    .filter((u) => u.role === 'volunteer_driver' && u.approval_status === 'approved')
+    .forEach((driver) => {
+      const coordinates = normalizeCoordinates(driver.coordinates);
+      if (!coordinates) return;
 
-    const assignedDriver = state.users.find((u) => u.id === ride.driverId);
-    const position = { lat: coordinates.lat, lng: coordinates.lon };
-    const marker = new google.maps.Marker({
-      position,
-      map,
-      title: member?.fullName || 'Unknown member',
-      icon: ride.status === 'assigned'
-        ? 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'
-        : 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
+      const position = { lat: coordinates.lat, lng: coordinates.lon };
+      const marker = new google.maps.Marker({
+        position,
+        map,
+        title: driver.fullName || 'Driver',
+        icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+      });
+      const infoWindow = new google.maps.InfoWindow({
+        content: `<strong>${escapeHtml(driver.fullName || 'Driver')}</strong><br/>Capacity: ${effectiveCapacity(driver)}`,
+      });
+      marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
+      mapState.markers.dispatch.push(marker);
+      bounds.extend(position);
     });
-    const infoWindow = new google.maps.InfoWindow({
-      content: `<strong>${escapeHtml(member?.fullName || 'Unknown member')}</strong><br/>Status: ${escapeHtml(ride.status)}<br/>Effective capacity: ${effectiveCapacity(assignedDriver)}`,
+
+  state.rides
+    .filter((ride) => ride.status === 'requested' || ride.status === 'assigned')
+    .forEach((ride) => {
+      const member = state.users.find((u) => u.id === ride.memberId);
+      const coordinates = normalizeCoordinates(member?.coordinates);
+      if (!coordinates) return;
+
+      const position = { lat: coordinates.lat, lng: coordinates.lon };
+      const marker = new google.maps.Marker({
+        position,
+        map,
+        title: member?.fullName || 'Unknown member',
+        icon: ride.status === 'assigned'
+          ? 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'
+          : 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
+      });
+      const infoWindow = new google.maps.InfoWindow({
+        content: `<strong>${escapeHtml(member?.fullName || 'Unknown member')}</strong><br/>Status: ${escapeHtml(ride.status)}`,
+      });
+      marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
+      mapState.markers.dispatch.push(marker);
+      bounds.extend(position);
     });
-    marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
-    mapState.markers.dispatch.push(marker);
-    bounds.extend(position);
-  });
 
   if (!bounds.isEmpty()) map.fitBounds(bounds);
 }
