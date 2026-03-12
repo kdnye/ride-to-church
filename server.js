@@ -239,7 +239,10 @@ async function fetchUsers() {
 }
 
 async function fetchRides() {
-  const rows = await sbRequest('/rest/v1/rides?select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position,travel_time_seconds,estimated_arrival_time,route_polyline)&order=scheduled_for.asc,created_at.asc');
+  // 1. Use your correct sbRequest REST call
+  const rows = await sbRequest('/rest/v1/rides?select=id,member_id,scheduled_for,pickup_notes,status,updated_at,revision,wheelchair_pickup_buffer_minutes,pickup_window_start,pickup_window_end,ride_assignments(driver_id,queue_position,travel_time_seconds,estimated_arrival_time,route_polyline),member:users!rides_member_id_fkey(id,full_name,coordinates)&order=scheduled_for.asc');
+
+  // 2. Map the results and safely parse the coordinates
   return rows.map((row) => ({
     id: row.id,
     memberId: row.member_id,
@@ -251,11 +254,20 @@ async function fetchRides() {
     wheelchairPickupBufferMinutes: row.wheelchair_pickup_buffer_minutes ?? 0,
     pickupWindowStart: row.pickup_window_start ?? null,
     pickupWindowEnd: row.pickup_window_end ?? null,
-    driverId: row.ride_assignments?.driver_id ?? null,
-    queueOrder: row.ride_assignments?.queue_position ?? null,
-    travelTimeSeconds: row.ride_assignments?.travel_time_seconds ?? null,
-    estimatedArrival: row.ride_assignments?.estimated_arrival_time ?? null,
-    routePolyline: row.ride_assignments?.route_polyline ?? null,
+    
+    // The REST API returns an array for joins, so we grab the first assignment safely
+    driverId: row.ride_assignments?.[0]?.driver_id ?? null,
+    queueOrder: row.ride_assignments?.[0]?.queue_position ?? null,
+    travelTimeSeconds: row.ride_assignments?.[0]?.travel_time_seconds ?? null,
+    estimatedArrival: row.ride_assignments?.[0]?.estimated_arrival_time ?? null,
+    routePolyline: row.ride_assignments?.[0]?.route_polyline ?? null,
+    
+    member: {
+      id: row.member?.id,
+      fullName: row.member?.full_name,
+      // THIS IS THE MAGIC FIX: We clean up the member's coordinates right here!
+      coordinates: pointToCoordinates(row.member?.coordinates),
+    },
   }));
 }
 
@@ -760,32 +772,41 @@ async function fetchUserById(userId) {
 function pointToCoordinates(value) {
   if (!value) return null;
 
+  // Failsafe: Catch stringified JSON objects
   if (typeof value === 'string' && value.trim().startsWith('{')) {
-    try {
-      value = JSON.parse(value);
-    } catch {
-      // keep original value and continue with legacy parsing
-    }
+    try { value = JSON.parse(value); } catch (e) {}
   }
 
-  let lat;
-  let lon;
+  let lat, lon;
 
+  // --- Phase 1: Extraction ---
   if (typeof value === 'string') {
-    const match = value.match(/POINT\(([-\d.]+) ([-\d.]+)\)/i);
+    const match = value.match(/POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)/i);
     if (match) {
-      [, lon, lat] = match;
+      lon = match[1];
+      lat = match[2];
     }
-  } else if (value.type === 'Point' && Array.isArray(value.coordinates)) {
-    [lon, lat] = value.coordinates;
-  } else if (typeof value === 'object') {
-    ({ lat, lon } = value);
+  } 
+  else if (typeof value === 'object' && value !== null) {
+    if (value.type === 'Point' && Array.isArray(value.coordinates)) {
+      // GeoJSON Point: { type: 'Point', coordinates: [lon, lat] }
+      [lon, lat] = value.coordinates;
+    } else if ('lat' in value && 'lon' in value) {
+      // Plain object: { lat, lon }
+      lat = value.lat;
+      lon = value.lon;
+    }
   }
 
-  const numericLat = Number(lat);
-  const numericLon = Number(lon);
-  if (!Number.isFinite(numericLat) || !Number.isFinite(numericLon)) return null;
-  return { lat: numericLat, lon: numericLon };
+  // --- Phase 2: Validation ---
+  const numLat = Number(lat);
+  const numLon = Number(lon);
+
+  if (Number.isFinite(numLat) && Number.isFinite(numLon)) {
+    return { lat: numLat, lon: numLon };
+  }
+
+  return null;
 }
 
 function scheduleExpiredSessionCleanup() {
