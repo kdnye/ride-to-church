@@ -285,6 +285,14 @@ function cleanupRealtimeSubscription() {
   realtime.client = null;
 }
 
+function hasActiveRideForDate(memberId, scheduledFor) {
+  return state.rides.some((ride) => (
+    ride.memberId === memberId
+    && ride.scheduledFor === scheduledFor
+    && (ride.status === 'requested' || ride.status === 'assigned')
+  ));
+}
+
 // --- APP ACTIONS ---
 async function hydrateState() {
   const [users, rides] = await Promise.all([apiClient.getUsers(), apiClient.getRides()]);
@@ -326,10 +334,16 @@ async function onCreateRideRequest(event) {
     }
   }
 
+  const scheduledFor = document.querySelector('#pickup-date').value;
+  if (hasActiveRideForDate(targetMemberId, scheduledFor)) {
+    assignResult.textContent = 'You already have an active ride request for that date.';
+    return;
+  }
+
   const optimisticRide = {
     id: `temp-${Date.now()}`,
     memberId: targetMemberId,
-    scheduledFor: document.querySelector('#pickup-date').value,
+    scheduledFor,
     pickupNotes: notes,
     status: 'requested',
   };
@@ -346,7 +360,11 @@ async function onCreateRideRequest(event) {
     document.querySelector('#pickup-date').value = nextSunday();
   } catch (error) {
     state.rides = before;
-    assignResult.textContent = `Ride request failed: ${error.message}`;
+    if (error.status === 409) {
+      assignResult.textContent = error.details?.error || 'An active ride already exists for that date.';
+    } else {
+      assignResult.textContent = `Ride request failed: ${error.message}`;
+    }
   }
   refreshAll();
 }

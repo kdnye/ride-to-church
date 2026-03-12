@@ -20,7 +20,13 @@ export async function sbRequest(endpoint, options = {}) {
   const data = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    throw new Error(data?.message ?? `Supabase request failed (${response.status})`);
+    const error = new Error(data?.message ?? `Supabase request failed (${response.status})`);
+    error.status = response.status;
+    error.code = data?.code;
+    error.details = data?.details;
+    error.hint = data?.hint;
+    error.payload = data;
+    throw error;
   }
 
   return data;
