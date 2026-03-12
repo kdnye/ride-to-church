@@ -15,6 +15,7 @@ const defaultState = {
     lastBroadcastBy: null,
   },
   auditLogs: [],
+  destinations: [],
 };
 
 const state = {
@@ -135,6 +136,58 @@ async function boot() {
   safeAddListener('#driver-select', 'change', renderDriverQueue);
   safeAddListener('#save-settings-btn', 'click', onSaveSettings);
   safeAddListener('#send-broadcast-btn', 'click', onSendBroadcast);
+
+  safeAddListener('#add-destination-form', 'submit', async (event) => {
+    event.preventDefault();
+    const actor = currentActor();
+    if (!actor || !canManageUsers(actor)) return;
+
+    const feedbackEl = document.querySelector('#dest-feedback');
+    const nameInput = document.querySelector('#new-dest-name');
+    const addressInput = document.querySelector('#new-dest-address');
+
+    if (!feedbackEl || !nameInput || !addressInput) return;
+
+    const name = nameInput.value.trim();
+    const address = addressInput.value.trim();
+
+    feedbackEl.textContent = 'Looking up address coordinates...';
+    feedbackEl.style.color = 'inherit';
+
+    try {
+      const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`);
+      if (!geoResponse.ok) {
+        throw new Error('Address lookup failed. Please try again.');
+      }
+
+      const geoData = await geoResponse.json();
+      if (!Array.isArray(geoData) || geoData.length === 0) {
+        throw new Error('Could not find GPS coordinates for that address. Try adding a ZIP code.');
+      }
+
+      const coordinates = {
+        lat: Number.parseFloat(geoData[0].lat),
+        lon: Number.parseFloat(geoData[0].lon),
+      };
+
+      if (!Number.isFinite(coordinates.lat) || !Number.isFinite(coordinates.lon)) {
+        throw new Error('Address lookup returned invalid coordinates.');
+      }
+
+      feedbackEl.textContent = 'Saving destination...';
+      const createdDestination = await apiClient.createDestination({ name, address, coordinates });
+      state.destinations.push(createdDestination);
+      state.destinations.sort((a, b) => a.name.localeCompare(b.name));
+      renderDestinations();
+      event.target.reset();
+      feedbackEl.textContent = '✅ Destination added successfully!';
+      feedbackEl.style.color = '#2e7d32';
+    } catch (error) {
+      feedbackEl.textContent = error.message;
+      feedbackEl.style.color = '#d32f2f';
+    }
+  });
+
 
   safeAddListener('#login-form', 'submit', onLogin);
   safeAddListener('#register-form', 'submit', onRegister);
@@ -295,9 +348,14 @@ function hasActiveRideForDate(memberId, scheduledFor) {
 
 // --- APP ACTIONS ---
 async function hydrateState() {
-  const [users, rides] = await Promise.all([apiClient.getUsers(), apiClient.getRides()]);
+  const [users, rides, destinations] = await Promise.all([
+    apiClient.getUsers(),
+    apiClient.getRides(),
+    apiClient.getDestinations(),
+  ]);
   state.users = users;
   state.rides = rides;
+  state.destinations = destinations;
 }
 
 async function onCreateRideRequest(event) {
@@ -391,15 +449,8 @@ async function onAutoAssign() {
   if (!assignments.length) return;
 
   try {
-    const destinationRaw = document.querySelector('#dispatch-destination')?.value;
-    let destinationCoordinates = null;
-    if (destinationRaw) {
-      try {
-        destinationCoordinates = JSON.parse(destinationRaw);
-      } catch {
-        destinationCoordinates = null;
-      }
-    }
+    const destinationId = document.querySelector('#dispatch-destination')?.value;
+    const destinationCoordinates = state.destinations.find((destination) => destination.id === destinationId)?.coordinates ?? null;
 
     const response = await apiClient.autoAssign({
       actorId: currentActor().id,
@@ -459,6 +510,7 @@ function refreshAll() {
 
   renderSelects();
   renderBoard();
+  renderDestinations();
   renderDriverQueue();
   renderAdminPanel();
   renderSettings();
@@ -514,6 +566,59 @@ function renderBoard() {
     .join('') || '<li class="muted">No assigned rides.</li>';
 }
 
+
+function renderDestinations() {
+  const actor = currentActor();
+  const dispatchSelect = document.querySelector('#dispatch-destination');
+  const adminList = document.querySelector('#admin-destinations-list');
+
+  if (dispatchSelect) {
+    dispatchSelect.innerHTML = state.destinations
+      .map((destination) => `<option value="${destination.id}">${escapeHtml(destination.name)}</option>`)
+      .join('');
+  }
+
+  if (!adminList) return;
+
+  if (!actor || !canManageUsers(actor)) {
+    adminList.innerHTML = '';
+    return;
+  }
+
+  adminList.innerHTML = state.destinations
+    .map((destination) => `
+      <li style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; gap: 0.5rem;">
+        <span><strong>${escapeHtml(destination.name)}</strong> (${escapeHtml(destination.address)})</span>
+        <button type="button" onclick="window.deleteDestination('${destination.id}')" style="background: #d32f2f; padding: 0.2rem 0.5rem; font-size: 0.8em; width: auto;">Remove</button>
+      </li>
+    `)
+    .join('') || '<li class="muted">No destinations configured.</li>';
+}
+
+window.deleteDestination = async (id) => {
+  if (!confirm('Are you sure you want to remove this destination?')) return;
+  const feedbackEl = document.querySelector('#dest-feedback');
+  if (feedbackEl) {
+    feedbackEl.textContent = 'Removing destination...';
+    feedbackEl.style.color = 'inherit';
+  }
+
+  try {
+    await apiClient.deleteDestination(id);
+    state.destinations = state.destinations.filter((destination) => destination.id !== id);
+    renderDestinations();
+    if (feedbackEl) {
+      feedbackEl.textContent = 'Destination removed.';
+      feedbackEl.style.color = '#2e7d32';
+    }
+  } catch (error) {
+    if (feedbackEl) {
+      feedbackEl.textContent = error.message;
+      feedbackEl.style.color = '#d32f2f';
+    }
+  }
+};
+
 async function renderDriverQueue() {
   const actor = currentActor();
   if (!actor || !canDrive(actor)) return;
@@ -541,8 +646,12 @@ async function renderDriverQueue() {
 function renderAdminPanel() {
   const actor = currentActor();
   const listEl = document.querySelector('#user-management-list');
+  const destinationListEl = document.querySelector('#admin-destinations-list');
+  const destinationFeedbackEl = document.querySelector('#dest-feedback');
   if (!actor || !canManageUsers(actor)) {
     listEl.innerHTML = '';
+    if (destinationListEl) destinationListEl.innerHTML = '';
+    if (destinationFeedbackEl) destinationFeedbackEl.textContent = '';
     return;
   }
 
@@ -603,6 +712,15 @@ function writeAudit({ type, actorId, before, after, metadata = {} }) {
     after,
     metadata,
   });
+}
+
+function escapeHtml(value) {
+  return `${value ?? ''}`
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function currentActor() { return state.currentUser; }
